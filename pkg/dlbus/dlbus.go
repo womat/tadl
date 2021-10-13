@@ -231,7 +231,7 @@ func getUVR42(b []byte) (f UVR42, err error) {
 	f.Temp4 = float64(int16(binary.LittleEndian.Uint16(b[7:9]))) / 10
 
 	f.Out1 = b[9]&out1 > 0
-	f.Out1 = b[9]&out2 > 0
+	f.Out2 = b[9]&out2 > 0
 
 	if f.Temp1 > tMax || f.Temp2 > tMax || f.Temp3 > tMax || f.Temp4 > tMax ||
 		f.Temp1 < tMin || f.Temp2 < tMin || f.Temp3 < tMin || f.Temp4 < tMin {
