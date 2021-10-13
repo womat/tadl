@@ -140,7 +140,7 @@ func (m *Handler) Stop() {
 	m.ticker.Stop()
 
 	//	debug.TraceLog.Printf("buffer: %v", m.buffer)
-	debug.DebugLog.Printf("buffer: %v", m.buffer)
+	debug.TraceLog.Printf("buffer: %v", m.buffer)
 
 	if len(m.buffer) == 0 {
 		return
@@ -157,7 +157,7 @@ func (m *Handler) Stop() {
 		}
 
 		m.uvr42 = x
-		debug.DebugLog.Println("UVR232:", m.uvr42)
+		debug.InfoLog.Println("UVR232:", m.uvr42)
 
 	default:
 		debug.ErrorLog.Printf("unsupported device id: %v", id)
