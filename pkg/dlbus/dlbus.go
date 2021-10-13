@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"github.com/womat/debug"
+	"strconv"
 	"tadl/pkg/raspberry"
 	"time"
 )
@@ -13,25 +14,48 @@ const (
 	_UVR42  = "UVR42"
 )
 
+// device ids
+const (
+	uvr31 = 48
+	uvr42 = 16
+	uvr64 = 32
+
+	tMax = 300
+	tMin = -50
+
+	out1 = 1 << 5
+	out2 = 1 << 6
+)
+
 // Handler contains the handler of the mqtt broker
 type Handler struct {
 	handler raspberry.Pin
-	// C is the channel to service the mqtt message
-	// sending a message to channel C will send the message
-	// C chan Message
-	ticker *time.Ticker
-	period time.Duration
-	//	sync         int
-	//	wait4sync    bool
-	bitCount int
-	b        byte
-	t        time.Time
-	buffer   []byte
-	//	tick         bool
-	syncCounter1 int
-	//	ignoreIntr   bool
+	ticker  *time.Ticker
 
-	uvr42 UVR42
+	// highBit is the period of a high bit >> 110% of display clock
+	highBit time.Duration
+
+	// startBit is the period of a high bit >> 150% of display clock + 10%
+	startBit time.Duration
+
+	// period is the duration of time of one display clock (1/frequency)
+	period time.Duration
+
+	// data is the byte buffer of the currently received byte
+	data byte
+
+	// bitCounter is number of the currently received bit
+	bitCounter int
+
+	// syncCounter is the count of consecutive high bits
+	syncCounter int
+
+	// time is the timestamp of the last falling edge (low bit)
+	time time.Time
+
+	// buffer is the received data record between two syncs
+	buffer []byte
+	uvr42  UVR42
 }
 
 type UVR42 struct {
@@ -48,85 +72,98 @@ type UVR42 struct {
 // New generate a new dl-bus handler
 func New() *Handler {
 	return &Handler{
-		ticker: time.NewTicker(time.Second),
+		//		ticker: time.NewTicker(time.Second),
 	}
 }
 
 func (m *Handler) Connect(h raspberry.Pin, f int) error {
 	m.handler = h
 	m.period = time.Duration(1000/f) * time.Millisecond
+	m.highBit = m.period
+	m.highBit += m.highBit / 10
+	//m.highBit = 22 * time.Millisecond
+	m.startBit = m.period + m.period/2
+	m.startBit += m.startBit / 10
+	//m.startBit = 35 * time.Millisecond
 	m.ticker = time.NewTicker(time.Minute)
 	m.ticker.Stop()
-	//	m.wait4sync = true
 	m.buffer = []byte{}
-	//	m.tick = true
-	//	m.ignoreIntr = false
-	m.t = time.Now()
-
-	debug.TraceLog.Println("call function Connect")
-
+	m.time = time.Now()
 	return nil
 }
 
-// Start restart the ticker without reading the singal on dl
-func (m *Handler) Start() error {
-	m.ticker.Reset(m.period)
-	return nil
-}
-
-func (m *Handler) Stop() error {
-	m.ticker.Stop()
-	debug.TraceLog.Println("buffer:", m.buffer)
-
-	if len(m.buffer) == 0 {
-		return nil
-	}
-
-	switch m.buffer[0] {
-	case 16:
-		if x, err := getUVR42(m.buffer); err == nil {
-			m.uvr42 = x
-		}
-	}
-
-	debug.DebugLog.Println("UVR232:", m.uvr42)
-
-	return nil
-}
-
-// Restart wait a half half-period, reads the signal on dl and restart the ticker
-func (m *Handler) Restart() error {
+// Sync wait for a sync sequence, clears the buffer and restarts the ticker
+// to recognize the sync sequence, wait for 16 periods (16 high bits) and a 1.5 period (start bit)
+// a period is 1/frequency
+func (m *Handler) Sync() {
 	t := time.Now()
-	dt := t.Sub(m.t)
-	m.t = t
+	interval := t.Sub(m.time)
+	m.time = t
 
-	if m.syncCounter1 >= 16 && dt >= 22*time.Millisecond && dt < 35*time.Millisecond {
-		//	debug.TraceLog.Printf("delta: %v", dt)
-		//	debug.TraceLog.Printf("sync! %v", m.syncCounter1)
-
-		m.syncCounter1 = 0
-		m.b = 0
-		m.bitCount = 1
-		m.buffer = m.buffer[0:0]
-		go m.ReadBit()
-
+	if m.syncCounter >= 16 && interval >= m.highBit && interval < m.startBit {
+		// sync detected (16 high bits and a start bit was received)
 		go func() {
-			//time.Sleep(m.period / 4)
-			//	time.Sleep(100*time.Microsecond)
+			// time.Sleep(m.period / 4)
+			// time.Sleep(100*time.Microsecond)
 			m.ticker.Reset(m.period)
 		}()
 
-		return nil
+		debug.TraceLog.Printf("SYNC detected, count of high bits: %v, interval: %v", m.syncCounter, interval)
+		debug.DebugLog.Print("SYNC detected")
+
+		m.syncCounter = 0
+		m.bitCounter = 1
+		m.data = 0
+		m.buffer = m.buffer[0:0]
+
+		go m.ReadBit()
+		return
 	}
 
-	if dt < 22*time.Millisecond {
-		m.syncCounter1++
-		//debug.TraceLog.Printf("%v", m.syncCounter1)
-		return nil
+	if interval < m.highBit {
+		if m.syncCounter > 0 {
+			debug.TraceLog.Printf("consecutive high bit received (%v), interval: %v", m.syncCounter, interval)
+		}
+
+		m.syncCounter++
+		return
 	}
 
-	m.syncCounter1 = 0
-	return nil
+	m.syncCounter = 0
+	return
+}
+
+// Stop stops receiving data and writes buffer to data frame
+func (m *Handler) Stop() {
+	defer debug.DebugLog.Print("wait for SYNC")
+
+	m.ticker.Stop()
+
+	//	debug.TraceLog.Printf("buffer: %v", m.buffer)
+	debug.DebugLog.Printf("buffer: %v", m.buffer)
+
+	if len(m.buffer) == 0 {
+		return
+	}
+
+	switch id := m.buffer[0]; id {
+	case uvr42:
+		var x UVR42
+		var err error
+
+		if x, err = getUVR42(m.buffer); err != nil {
+			debug.ErrorLog.Printf("invalid data format: %v", err)
+			return
+		}
+
+		m.uvr42 = x
+		debug.DebugLog.Println("UVR232:", m.uvr42)
+
+	default:
+		debug.ErrorLog.Printf("unsupported device id: %v", id)
+	}
+
+	return
 }
 
 // Service listens to a message on the channel C and sends the message
@@ -136,49 +173,53 @@ func (m *Handler) Service() {
 		m.ReadBit()
 	}
 }
-
 func (m *Handler) ReadBit() {
+	//t := time.Now()
+	m.readBit()
+	//debug.DebugLog.Printf("runtime ReadBit (call): %v", time.Now().Sub(t))
+}
+
+func (m *Handler) readBit() {
 	if m.handler.Read() {
 		// DL signal High
-		//		debug.TraceLog.Printf("DL signal: high, data bit: %v", m.bitCount)
+		debug.TraceLog.Printf("DL signal: high, bit: %v", m.bitCounter)
 
 		switch {
-		case m.bitCount == 0:
+		case m.bitCounter == 0:
 			m.Stop()
 			debug.TraceLog.Println("start bit missing, wait for sync")
-		case m.bitCount == 9:
-			//debug.TraceLog.Println("stop bit received")
-			//debug.TraceLog.Printf("received byte %v, %v", m.b, strconv.FormatInt(int64(m.b), 2))
-			m.buffer = append(m.buffer, m.b)
-			m.bitCount = 0
+		case m.bitCounter == 9:
+			debug.TraceLog.Println("stop bit received")
+			debug.TraceLog.Printf("received byte %v (%v)", m.data, strconv.FormatInt(int64(m.data), 2))
+			m.buffer = append(m.buffer, m.data)
+			m.bitCounter = 0
 		default:
-			//	debug.TraceLog.Printf("set bit %v",strconv.FormatInt(1 <<  (m.bitCount-1), 2) )
-			m.b |= 1 << (m.bitCount - 1)
-			m.bitCount++
+			m.data |= 1 << (m.bitCounter - 1)
+			m.bitCounter++
 		}
 
 		return
 	}
 
 	// DL signal Low
-	//	debug.TraceLog.Printf("DL signal: low, data bit: %v", m.bitCount)
+	debug.TraceLog.Printf("DL signal: low, bit: %v", m.bitCounter)
 	switch {
-	case m.bitCount == 0:
-		//debug.TraceLog.Println("start bit received")
-		m.b = 0
-		m.bitCount++
-	case m.bitCount > 8:
+	case m.bitCounter == 0:
+		debug.TraceLog.Println("start bit received")
+		m.data = 0
+		m.bitCounter++
+	case m.bitCounter > 8:
 		m.Stop()
 		debug.TraceLog.Println("stop bit missing, wait for sync")
 	default:
-		m.bitCount++
+		m.bitCounter++
 	}
 }
 
 func getUVR42(b []byte) (f UVR42, err error) {
 	if len(b) == 0 || len(b) != 10 || b[0] != 16 {
 		f.Type = Invalid
-		err = errors.New("invalid data")
+		err = errors.New("invalid data length")
 		return
 	}
 
@@ -188,79 +229,18 @@ func getUVR42(b []byte) (f UVR42, err error) {
 	f.Temp2 = float64(int16(binary.LittleEndian.Uint16(b[3:5]))) / 10
 	f.Temp3 = float64(int16(binary.LittleEndian.Uint16(b[5:7]))) / 10
 	f.Temp4 = float64(int16(binary.LittleEndian.Uint16(b[7:9]))) / 10
-	f.Out1 = b[9]|1<<5 == 1
-	f.Out1 = b[9]|1<<6 == 1
+
+	f.Out1 = b[9]&out1 > 0
+	f.Out1 = b[9]&out2 > 0
+
+	if f.Temp1 > tMax || f.Temp2 > tMax || f.Temp3 > tMax || f.Temp4 > tMax ||
+		f.Temp1 < tMin || f.Temp2 < tMin || f.Temp3 < tMin || f.Temp4 < tMin {
+		err = errors.New("invalid temperature")
+		return
+	}
 	return
 }
 
 func (m *Handler) GetMeasurements() interface{} {
 	return m.uvr42
-
 }
-
-/*
-   func (m *Handler) ReadBit1() {
-   	//t := time.Now()
-   	//dt := t.Sub(m.t)
-   	//m.t = t
-   	p := m.handler.Read()
-
-   	if p {
-   		//debug.TraceLog.Printf("delta %v, DL signal: high, data bit: %v, sync bit: %v", dt, m.bitCount, m.sync)
-   		m.sync++
-
-   		// ignore high signal, if no start bit has revived
-   		if m.wait4sync || m.bitCount == 0 {
-   			return
-   		}
-
-   		if m.bitCount == 9 {
-   			//		debug.TraceLog.Println("stop bit received")
-   			// debug.TraceLog.Printf("received byte %v, %v", m.b, strconv.FormatInt(int64(m.b), 2))
-   			m.buffer = append(m.buffer, m.b)
-   			m.bitCount = 0
-   			return
-   		}
-
-   		//debug.TraceLog.Printf("set bit %v",strconv.FormatInt(1 <<  (m.bitCount-1), 2) )
-
-   		m.b |= 1 << (m.bitCount - 1)
-   		m.bitCount++
-   	} else {
-   		//debug.TraceLog.Printf("delta %v, DL signal: low, data bit: %v, sync bit: %v", dt, m.bitCount, m.sync)
-
-   		if m.sync >= 16 {
-
-   			debug.TraceLog.Printf("sync finished, tick: %v", m.tick)
-   			debug.TraceLog.Println("buffer:", m.buffer)
-   			m.bitCount = 0
-   			m.wait4sync = false
-   			m.buffer = m.buffer[0:0]
-   		}
-
-   		m.sync = 0
-
-   		if m.wait4sync {
-   			return
-   		}
-
-   		if m.bitCount == 0 {
-   			//		debug.TraceLog.Println("start bit received")
-   			m.b = 0
-   			m.bitCount++
-   			return
-   		}
-
-   		if m.bitCount > 8 {
-   			// debug.TraceLog.Println("stop bit missing, wait for sync")
-   			m.sync = 0
-   			m.wait4sync = false
-   			return
-   		}
-
-   		m.bitCount++
-   	}
-   }
-
-
-*/

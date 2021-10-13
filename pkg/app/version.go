@@ -18,7 +18,7 @@ import (
 // but we keep the correct syntax.
 //TODO: increase version number to 1.0.1+2020xxyy
 const (
-	VERSION = "0.0.1+20211012"
+	VERSION = "0.0.2+20211013"
 	MODULE  = "tadl"
 )
 
