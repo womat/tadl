@@ -81,10 +81,8 @@ func (m *Handler) Connect(h raspberry.Pin, f int) error {
 	m.period = time.Duration(1000/f) * time.Millisecond
 	m.highBit = m.period
 	m.highBit += m.highBit / 10
-	//m.highBit = 22 * time.Millisecond
 	m.startBit = m.period + m.period/2
 	m.startBit += m.startBit / 10
-	//m.startBit = 35 * time.Millisecond
 	m.ticker = time.NewTicker(time.Minute)
 	m.ticker.Stop()
 	m.buffer = []byte{}
@@ -139,7 +137,6 @@ func (m *Handler) Stop() {
 
 	m.ticker.Stop()
 
-	//	debug.TraceLog.Printf("buffer: %v", m.buffer)
 	debug.TraceLog.Printf("buffer: %v", m.buffer)
 
 	if len(m.buffer) == 0 {
@@ -152,7 +149,7 @@ func (m *Handler) Stop() {
 		var err error
 
 		if x, err = getUVR42(m.buffer); err != nil {
-			debug.ErrorLog.Printf("invalid data format: %v", err)
+			debug.ErrorLog.Printf("get data record: %v", err)
 			return
 		}
 
