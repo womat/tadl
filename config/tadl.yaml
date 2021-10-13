@@ -1,0 +1,35 @@
+# gpio >> DL-Bus input gpio pin
+gpio: 4
+# bouncetime >> time to wait for a stable signal on gpio pin (ms) to get a "clean" level (suppress key bouncing)
+bouncetime: 5
+# frequency >> Displaytact in Hz
+frequency: 50
+
+# debug activates the debug level and the output device/file
+debug:
+  # log file e.g. /tmp/emu.log; stderr; stdout
+  # default: stderr
+  file: stderr
+  # flag: (default: standard)
+  #       standard (default) >> Warning | Info | Error | Fatal
+  #       trace              >> Warning | Info | Error | Fatal | Debug | Trace
+  #       debug              >> Warning | Info | Error | Fatal | Debug
+  flag: trace
+
+mqtt:
+  # connection >> defines the connection string to the mqtt broker
+  connection: "tcp://raspberrypi4.fritz.box:1883"
+  # interval defines the interval in seconds, in which the measurements are sent to mqqt
+  # default 5 seconds
+  interval: 5
+  topic: test/uvr42/summary
+
+# webserver configuration
+webserver:
+  # url defines the bound of host (default: 0.0.0.0:4000)
+  url: http://0.0.0.0:4020
+  # enable/disable webservices (default: disabled)
+  webservices:
+    version: true
+    health: true
+    data: true
