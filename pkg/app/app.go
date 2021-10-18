@@ -1,11 +1,13 @@
 package app
 
 import (
+	"io"
 	"net/url"
 	"tadl/pkg/app/config"
 	"tadl/pkg/dlbus"
 	"tadl/pkg/mqtt"
 	"tadl/pkg/raspberry"
+	"tadl/pkg/uvr42"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/womat/debug"
@@ -29,10 +31,13 @@ type App struct {
 	mqtt *mqtt.Handler
 
 	// gpio is the handler to the rpi gpio memory
-	gpio        raspberry.GPIO
-	lineHandler raspberry.Pin
+	gpio raspberry.GPIO
 
-	dl *dlbus.Handler
+	// uvr42 is the handler to the uvr42 data frame handler
+	uvr42 *uvr42.Handler
+
+	// uvr42Data is the last read data frame of uvr42
+	uvr42Data uvr42.UVR42
 
 	// restart signals application restart
 	restart chan struct{}
@@ -48,23 +53,17 @@ func New(config *config.Config) (*App, error) {
 		return &App{}, err
 	}
 
-	gpio, err := raspberry.Open()
-	if err != nil {
-		debug.ErrorLog.Printf("can't open gpio: %v", err)
-		return &App{}, err
-	}
-
 	return &App{
 		config:    config,
 		urlParsed: u,
-		gpio:      gpio,
 
-		web:  fiber.New(),
-		mqtt: mqtt.New(),
-		dl:   dlbus.New(),
+		uvr42: uvr42.New(),
+		web:   fiber.New(),
+		mqtt:  mqtt.New(),
 
-		restart:  make(chan struct{}),
-		shutdown: make(chan struct{}),
+		uvr42Data: uvr42.UVR42{},
+		restart:   make(chan struct{}),
+		shutdown:  make(chan struct{}),
 	}, err
 }
 
@@ -74,34 +73,36 @@ func (app *App) Run() error {
 		return err
 	}
 
-	go testPinEmu(app.lineHandler)
 	go app.mqtt.Service()
 	go app.runWebServer()
-	go app.dl.Service()
+	go app.readUVR42()
 
 	return nil
 }
 
 // init initializes the application.
 func (app *App) init() (err error) {
+	var lineHandler raspberry.Pin
+	var dl io.ReadCloser
 
-	if app.lineHandler, err = app.gpio.NewPin(app.config.Gpio); err != nil {
+	app.gpio, err = raspberry.Open()
+	if err != nil {
+		debug.ErrorLog.Printf("can't open gpio: %v", err)
+		return err
+	}
+
+	if lineHandler, err = app.gpio.NewPin(app.config.Gpio); err != nil {
 		debug.ErrorLog.Printf("can't open pin: %v", err)
 		return
 	}
 
-	app.lineHandler.Input()
-	app.lineHandler.PullUp()
-	app.lineHandler.SetBounceTime(app.config.BounceTime)
-
-	if err = app.dl.Connect(app.lineHandler, app.config.Frequency); err != nil {
+	if dl, err = dlbus.Open(lineHandler, app.config.Frequency, app.config.BounceTime); err != nil {
 		debug.ErrorLog.Printf("can't open dl: %v", err)
 		return err
 	}
 
-	// call handler when pin changes from low to high.
-	if err = app.lineHandler.Watch(raspberry.EdgeFalling, app.handler); err != nil {
-		debug.ErrorLog.Printf("can't open watcher: %v", err)
+	if err = app.uvr42.Connect(dl); err != nil {
+		debug.ErrorLog.Printf("can't open uvr42 %v", err)
 		return err
 	}
 
@@ -130,12 +131,11 @@ func (app *App) Shutdown() <-chan struct{} {
 }
 
 func (app *App) Close() error {
-	// app.chip.Close() unwatch all pins and release the gpio memory!
-	_ = app.gpio.Close()
-
 	if app.mqtt != nil {
 		_ = app.mqtt.Disconnect()
 	}
 
+	_ = app.uvr42.Close()
+	_ = app.gpio.Close()
 	return nil
 }

@@ -18,6 +18,6 @@ func (app *App) HandleData() fiber.Handler {
 	return func(ctx *fiber.Ctx) error {
 		debug.InfoLog.Print("web request data")
 
-		return ctx.JSON(app.dl.GetMeasurements())
+		return ctx.JSON(app.uvr42Data)
 	}
 }

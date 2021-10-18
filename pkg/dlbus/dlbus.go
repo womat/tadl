@@ -1,102 +1,136 @@
 package dlbus
 
 import (
-	"encoding/binary"
-	"errors"
 	"github.com/womat/debug"
+	"io"
 	"strconv"
+	"sync"
 	"tadl/pkg/raspberry"
 	"time"
 )
 
-const (
-	Invalid = ""
-	_UVR42  = "UVR42"
-)
-
-// device ids
-const (
-	uvr31 = 48
-	uvr42 = 16
-	uvr64 = 32
-
-	tMax = 300
-	tMin = -50
-
-	out1 = 1 << 5
-	out2 = 1 << 6
-)
-
-// Handler contains the handler of the mqtt broker
+// Handler contains the raspi of the mqtt broker
 type Handler struct {
-	handler raspberry.Pin
-	ticker  *time.Ticker
-
-	// highBit is the period of a high bit >> 110% of display clock
-	highBit time.Duration
-
-	// startBit is the period of a high bit >> 150% of display clock + 10%
-	startBit time.Duration
-
-	// period is the duration of time of one display clock (1/frequency)
-	period time.Duration
-
-	// data is the byte buffer of the currently received byte
-	data byte
-
-	// bitCounter is number of the currently received bit
-	bitCounter int
-
-	// syncCounter is the count of consecutive high bits
-	syncCounter int
+	// raspi is the handler of the raspberry pin, where the dl bus is connected
+	raspi raspberry.Pin
+	// ticker is the display clock of the dl bus
+	ticker *time.Ticker
+	// done is the channel to stop the m.service()
+	done chan bool
 
 	// time is the timestamp of the last falling edge (low bit)
 	time time.Time
+	// syncCounter is the count of consecutive high bits
+	syncCounter int
 
-	// buffer is the received data record between two syncs
-	buffer []byte
-	uvr42  UVR42
+	// rxBit is number of the currently received bit
+	rxBit int
+	// rxRegister is the buffer of the currently received byte
+	rxRegister byte
+	// rxBuffer is the received data record between two syncs
+	rxBuffer []byte
+	// rl lock the rxBuffer until data are received
+	rl sync.Mutex
+
+	// period is the duration of time of one display clock (1/frequency)
+	period time.Duration
+	// highBit is the period of a high bit >> 110% of display clock
+	highBit time.Duration
+	// startBit is the period of a start bit >> 150% of display clock + 10%
+	startBit time.Duration
 }
 
-type UVR42 struct {
-	Type  string
-	Time  time.Time
-	Temp1 float64
-	Temp2 float64
-	Temp3 float64
-	Temp4 float64
-	Out1  bool
-	Out2  bool
-}
-
-// New generate a new dl-bus handler
-func New() *Handler {
-	return &Handler{
-		//		ticker: time.NewTicker(time.Second),
+// Open listen the dl bus on the configured raspberry pin
+func Open(h raspberry.Pin, f int, b time.Duration) (io.ReadCloser, error) {
+	m := Handler{
+		raspi:       h,
+		ticker:      time.NewTicker(time.Minute),
+		done:        make(chan bool, 1),
+		time:        time.Now(),
+		syncCounter: 0,
+		rxBit:       0,
+		rxRegister:  0,
+		rxBuffer:    []byte{},
+		rl:          sync.Mutex{},
+		period:      time.Duration(1000/f) * time.Millisecond,
+		highBit:     0,
+		startBit:    0,
 	}
-}
 
-func (m *Handler) Connect(h raspberry.Pin, f int) error {
-	m.handler = h
-	m.period = time.Duration(1000/f) * time.Millisecond
+	// init dl bus display clock
+	m.ticker.Stop()
+
+	// calc highBit duration (110% of period)
 	m.highBit = m.period
 	m.highBit += m.highBit / 10
+
+	// calc startBit duration (150% of period + 10%)
 	m.startBit = m.period + m.period/2
 	m.startBit += m.startBit / 10
-	m.ticker = time.NewTicker(time.Minute)
-	m.ticker.Stop()
-	m.buffer = []byte{}
-	m.time = time.Now()
+
+	m.raspi.Input()
+	m.raspi.PullUp()
+	m.raspi.SetBounceTime(b)
+
+	// call the handler when pin changes from low to high.
+	if err := m.raspi.Watch(raspberry.EdgeFalling, m.handler); err != nil {
+		debug.ErrorLog.Printf("can't open watcher: %v", err)
+		return &m, err
+	}
+
+	// listen signals on dl bus
+	go m.service()
+
+	return &m, nil
+}
+
+// Read current dl bus frame (data before last sync)
+func (m *Handler) Read(b []byte) (int, error) {
+	m.rl.Lock()
+	n := copy(b, m.rxBuffer)
+	m.rl.Unlock()
+
+	return n, nil
+}
+
+// Close stops listening dl bus >> stop watching raspberry pin and stops m.service()
+func (m *Handler) Close() error {
+	m.raspi.Unwatch()
+	m.done <- true
+	m.rxBuffer = []byte{}
+	m.rl.Unlock()
 	return nil
 }
 
-// Sync wait for a sync sequence, clears the buffer and restarts the ticker
-// to recognize the sync sequence, wait for 16 periods (16 high bits) and a 1.5 period (start bit)
+// handler listen raspberry pin
+func (m *Handler) handler(p raspberry.Pin) {
+	m.sync()
+}
+
+// service is synchronized with the display clock and listen the signals of the dl bus
+// the done channel stops the service
+func (m *Handler) service() {
+	defer m.ticker.Stop()
+
+	for {
+		select {
+		case <-m.ticker.C:
+			m.readBit()
+		case <-m.done:
+			debug.DebugLog.Print("stop service()")
+			return
+		}
+	}
+}
+
+// Sync wait for a sync sequence, clears the rxRegister and rxBuffer and restarts the ticker (synchronizing the dl bus)
+// to recognize the sync sequence, wait for 17.5 periods (16 high bits + start bit)
 // a period is 1/frequency
-func (m *Handler) Sync() {
+func (m *Handler) sync() {
 	t := time.Now()
 	interval := t.Sub(m.time)
 	m.time = t
+	debug.TraceLog.Printf("falling edge detected, DL signal: low,  interval: %v", interval)
 
 	if m.syncCounter >= 16 && interval >= m.highBit && interval < m.startBit {
 		// sync detected (16 high bits and a start bit was received)
@@ -109,12 +143,13 @@ func (m *Handler) Sync() {
 		debug.TraceLog.Printf("SYNC detected, count of high bits: %v, interval: %v", m.syncCounter, interval)
 		debug.DebugLog.Print("SYNC detected")
 
+		m.rl.Lock()
+		m.rxBit = 1
+		m.rxRegister = 0
+		m.rxBuffer = m.rxBuffer[0:0]
 		m.syncCounter = 0
-		m.bitCounter = 1
-		m.data = 0
-		m.buffer = m.buffer[0:0]
 
-		go m.ReadBit()
+		go m.readBit()
 		return
 	}
 
@@ -131,113 +166,58 @@ func (m *Handler) Sync() {
 	return
 }
 
-// Stop stops receiving data and writes buffer to data frame
-func (m *Handler) Stop() {
-	defer debug.DebugLog.Print("wait for SYNC")
-
+// stop to receiving data from dl bus, writes data to buffer and wait for sync
+func (m *Handler) stop() {
 	m.ticker.Stop()
+	m.rl.Unlock()
 
-	debug.TraceLog.Printf("buffer: %v", m.buffer)
-
-	if len(m.buffer) == 0 {
-		return
-	}
-
-	switch id := m.buffer[0]; id {
-	case uvr42:
-		var x UVR42
-		var err error
-
-		if x, err = getUVR42(m.buffer); err != nil {
-			debug.ErrorLog.Printf("get data record: %v", err)
-			return
-		}
-
-		m.uvr42 = x
-		debug.InfoLog.Println("UVR232:", m.uvr42)
-
-	default:
-		debug.ErrorLog.Printf("unsupported device id: %v", id)
-	}
-
+	debug.TraceLog.Printf("buffer: %v", m.rxBuffer)
+	debug.DebugLog.Print("wait for SYNC")
 	return
 }
 
-// Service listens to a message on the channel C and sends the message
-// if no handler or topic is defined, the message will be ignored
-func (m *Handler) Service() {
-	for range m.ticker.C {
-		m.ReadBit()
-	}
-}
-func (m *Handler) ReadBit() {
-	//t := time.Now()
-	m.readBit()
-	//debug.DebugLog.Printf("runtime ReadBit (call): %v", time.Now().Sub(t))
-}
-
+// readBit reads a bit from dl bus and checks, if bit is a start, a stop or a data bit
+// check start/stop sequences, received data bytes and fill the rxBuffer.
+// if a sync sequence starts, the rxBuffer is competed
 func (m *Handler) readBit() {
-	if m.handler.Read() {
+	if m.raspi.Read() {
 		// DL signal High
-		debug.TraceLog.Printf("DL signal: high, bit: %v", m.bitCounter)
+		debug.TraceLog.Printf("DL signal: high, bit: %v", m.rxBit)
 
 		switch {
-		case m.bitCounter == 0:
-			m.Stop()
-			debug.TraceLog.Println("start bit missing, wait for sync")
-		case m.bitCounter == 9:
+		case m.rxBit == 0:
+			// if th first bit is high (no start bit), the sync sequence starts
+			m.stop()
+			debug.TraceLog.Println("no start bit, sync is starting")
+		case m.rxBit == 9:
+			// stop bit received
 			debug.TraceLog.Println("stop bit received")
-			debug.TraceLog.Printf("received byte %v (%v)", m.data, strconv.FormatInt(int64(m.data), 2))
-			m.buffer = append(m.buffer, m.data)
-			m.bitCounter = 0
+			debug.TraceLog.Printf("received byte %v (%v)", m.rxRegister, strconv.FormatInt(int64(m.rxRegister), 2))
+			m.rxBuffer = append(m.rxBuffer, m.rxRegister)
+			m.rxBit = 0
 		default:
-			m.data |= 1 << (m.bitCounter - 1)
-			m.bitCounter++
+			// data bit received and set bit in register
+			m.rxRegister |= 1 << (m.rxBit - 1)
+			m.rxBit++
 		}
 
 		return
 	}
 
 	// DL signal Low
-	debug.TraceLog.Printf("DL signal: low, bit: %v", m.bitCounter)
+	debug.TraceLog.Printf("DL signal: low, bit: %v", m.rxBit)
 	switch {
-	case m.bitCounter == 0:
+	case m.rxBit == 0:
+		// start bit received
 		debug.TraceLog.Println("start bit received")
-		m.data = 0
-		m.bitCounter++
-	case m.bitCounter > 8:
-		m.Stop()
+		m.rxRegister = 0
+		m.rxBit = 1
+	case m.rxBit > 8:
+		// no stop bit received, wait for sync
+		m.stop()
 		debug.TraceLog.Println("stop bit missing, wait for sync")
 	default:
-		m.bitCounter++
+		// data bit received
+		m.rxBit++
 	}
-}
-
-func getUVR42(b []byte) (f UVR42, err error) {
-	if len(b) == 0 || len(b) != 10 || b[0] != 16 {
-		f.Type = Invalid
-		err = errors.New("invalid data length")
-		return
-	}
-
-	f.Type = _UVR42
-	f.Time = time.Now()
-	f.Temp1 = float64(int16(binary.LittleEndian.Uint16(b[1:3]))) / 10
-	f.Temp2 = float64(int16(binary.LittleEndian.Uint16(b[3:5]))) / 10
-	f.Temp3 = float64(int16(binary.LittleEndian.Uint16(b[5:7]))) / 10
-	f.Temp4 = float64(int16(binary.LittleEndian.Uint16(b[7:9]))) / 10
-
-	f.Out1 = b[9]&out1 > 0
-	f.Out2 = b[9]&out2 > 0
-
-	if f.Temp1 > tMax || f.Temp2 > tMax || f.Temp3 > tMax || f.Temp4 > tMax ||
-		f.Temp1 < tMin || f.Temp2 < tMin || f.Temp3 < tMin || f.Temp4 < tMin {
-		err = errors.New("invalid temperature")
-		return
-	}
-	return
-}
-
-func (m *Handler) GetMeasurements() interface{} {
-	return m.uvr42
 }
