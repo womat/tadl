@@ -12,13 +12,22 @@ import (
 type Handler struct {
 	// raspi is the handler of the raspberry pin, where the dl bus is connected
 	raspi raspberry.Pin
-	// time is the timestamp of the last falling edge (low bit)
-	time time.Time
+
+	// clock is the display clock in Hz
+	clock int
+	// bitClock is a period of the display clock (-15%)
+	bitClock time.Duration
+	// lastLevelChange is the timestamp of the last level change of the manchester code (falling or rising edge)
+	lastLevelChange time.Time
+
 	// syncCounter is the count of consecutive high bits
 	syncCounter int
-	isSync      bool
+	// isSync marks that a data stream can be received (sync sequence is finish)
+	isSync bool
 
-	// rxBit is number of the currently received bit
+	// rx channel receives data stream from manchester code
+	rx chan bool
+	// rxBit is the number of the currently received bit of the rxRegister
 	rxBit int
 	// rxRegister is the buffer of the currently received byte
 	rxRegister byte
@@ -26,19 +35,15 @@ type Handler struct {
 	rxBuffer []byte
 	// rl lock the rxBuffer until data are received
 	rl sync.Mutex
-
-	rx chan bool
-
-	bitClock time.Duration
-	bitTime  time.Time
 }
 
 // Open listen the dl bus on the configured raspberry pin
-func Open(h raspberry.Pin, f int, b time.Duration) (io.ReadCloser, error) {
+func Open(h raspberry.Pin, c int, b time.Duration) (io.ReadCloser, error) {
 	m := Handler{
-		raspi: h,
-		time:  time.Now(),
+		raspi:           h,
+		lastLevelChange: time.Now(),
 
+		clock:       c,
 		syncCounter: 0,
 		isSync:      false,
 		rxBit:       0,
@@ -46,10 +51,10 @@ func Open(h raspberry.Pin, f int, b time.Duration) (io.ReadCloser, error) {
 		rxBuffer:    []byte{},
 		rl:          sync.Mutex{},
 		rx:          make(chan bool, 1024),
-		bitClock:    17 * time.Millisecond,
+		bitClock:    time.Duration(850/c) * time.Millisecond,
 	}
 
-	go m.bit()
+	go m.service()
 
 	m.raspi.Input()
 	m.raspi.PullUp()
@@ -79,41 +84,50 @@ func (m *Handler) Read(b []byte) (int, error) {
 	return n, nil
 }
 
-// Close stops listening dl bus >> stop watching raspberry pin and stops m.service()
+// Close stops listening dl bus >> stop watching raspberry pin and stops m.service() because of close(m.rx) channel
 func (m *Handler) Close() error {
 	m.raspi.Unwatch()
 	m.rxBuffer = []byte{}
-	m.rl.Unlock()
+
+	if m.isSync {
+		m.rl.Unlock()
+	}
+
 	close(m.rx)
 	return nil
 }
 
-// handler listen raspberry pin
-// Sync wait for a sync sequence, clears the rxRegister and rxBuffer and restarts the ticker (synchronizing the dl bus)
-// to recognize the sync sequence, wait for 17.5 periods (16 high bits + start bit)
-// a period is 1/frequency
+// handler listen to raspberry pin and encode manchester code and send the received bits to buffered channel rx
+// decoding manchester code: siehe https://www.elektroniktutor.de/internet/codes.html
+// Nach dem Ethernet-Standard codiert die ansteigende Flanke im Manchestercode die logische 1 als High-Zustand im Datenstrom.
+// Die fallende Flanke im Manchestercode, bezogen auf die zeitliche Abfolge des Datenstroms steht für die logische 0, dem Low-Zustand des Datenstroms.
+// Die Information ist an die Signalflanken gebunden, die Codierung entspricht damit einem digitalen Phase-Shift-Keying-Verfahren.
 func (m *Handler) handler(p raspberry.Pin) {
 	t := time.Now()
-	d := t.Sub(m.time)
-	//debug.TraceLog.Println("clock: ", d)
 
-	if d < m.bitClock {
+	if t.Sub(m.lastLevelChange) < m.bitClock {
+		// only full periods are valid
 		return
 	}
 
-	m.time = t
+	m.lastLevelChange = t
 	m.rx <- !m.raspi.Read()
 }
 
-func (m *Handler) bit() {
+// service handles incoming bits
+// check sync and receive byte for byte to rxBuffer
+func (m *Handler) service() {
+	bitTime := time.Now()
+	tMin := time.Duration(900/m.clock) * time.Millisecond  // 18ms
+	tMax := time.Duration(1150/m.clock) * time.Millisecond // 23ms
+
 	for b := range m.rx {
 		t := time.Now()
-		d := t.Sub(m.bitTime)
-		m.bitTime = t
 
-		debug.TraceLog.Println("bit received: ", b, d)
+		d := t.Sub(bitTime)
+		bitTime = t
 
-		if m.isSync && (d > 23*time.Millisecond || d < 18*time.Millisecond) {
+		if m.isSync && (d > tMax || d < tMin) {
 			debug.DebugLog.Println("bit clock out of range, start sync: ", d)
 			m.rxBuffer = m.rxBuffer[0:0]
 			m.stop()
@@ -125,7 +139,6 @@ func (m *Handler) bit() {
 
 			if m.syncCounter >= 15 {
 				if !m.isSync {
-					debug.TraceLog.Println("SYNC detected")
 					m.rl.Lock()
 					m.isSync = true
 					m.rxBit = 0
@@ -143,14 +156,11 @@ func (m *Handler) bit() {
 	}
 }
 
-// stop to receiving data from dl bus, writes data to buffer and wait for sync
+// stop to receiving data from dl bus and release (unlock) rxBuffer for reader
 func (m *Handler) stop() {
+	debug.DebugLog.Printf("rxBuffer: %v", m.rxBuffer)
 	m.isSync = false
 	m.syncCounter = 0
-
-	debug.DebugLog.Printf("buffer: %v", m.rxBuffer)
-	debug.TraceLog.Print("wait for SYNC")
-
 	m.rl.Unlock()
 	return
 }
@@ -169,7 +179,6 @@ func (m *Handler) readBit(bit bool) {
 			m.stop()
 		case m.rxBit == 9:
 			// stop bit received
-			debug.TraceLog.Print("stop bit received")
 			m.rxBuffer = append(m.rxBuffer, m.rxRegister)
 			m.rxBit = 0
 		default:
@@ -183,7 +192,6 @@ func (m *Handler) readBit(bit bool) {
 	switch {
 	case m.rxBit == 0:
 		// start bit received
-		debug.TraceLog.Print("start bit received")
 		m.rxRegister = 0
 		m.rxBit = 1
 	case m.rxBit > 8:

@@ -19,7 +19,7 @@ type Config struct {
 	Gpio          int             `yaml:"gpio"`
 	BounceTimeInt int             `yaml:"bouncetime"`
 	BounceTime    time.Duration   `yaml:"-"`
-	Frequency     int             `yaml:"frequency"`
+	Clock         int             `yaml:"clock"`
 	Flag          FlagConfig      `yaml:"-"`
 	DataFile      string          `yaml:"datafile"`
 	Debug         DebugConfig     `yaml:"debug"`
@@ -58,7 +58,9 @@ type DebugConfig struct {
 
 func NewConfig() *Config {
 	return &Config{
-		Flag: FlagConfig{},
+		Clock:         50,
+		BounceTimeInt: 0,
+		Flag:          FlagConfig{},
 		Debug: DebugConfig{
 			FileString: "stderr",
 			FlagString: "standard",

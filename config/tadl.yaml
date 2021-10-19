@@ -1,9 +1,13 @@
 # gpio >> DL-Bus input gpio pin
 gpio: 4
+
 # bouncetime >> time to wait for a stable signal on gpio pin (ms) to get a "clean" level (suppress key bouncing)
-bouncetime: 5
-# frequency >> display clock in Hz
-frequency: 50
+# default: 0
+bouncetime: 0
+
+# clock >> display clock in Hz
+# default: 50
+clock: 50
 
 # debug activates the debug level and the output device/file
 debug:

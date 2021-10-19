@@ -96,7 +96,7 @@ func (app *App) init() (err error) {
 		return
 	}
 
-	if dl, err = dlbus.Open(lineHandler, app.config.Frequency, app.config.BounceTime); err != nil {
+	if dl, err = dlbus.Open(lineHandler, app.config.Clock, app.config.BounceTime); err != nil {
 		debug.ErrorLog.Printf("can't open dl: %v", err)
 		return err
 	}
