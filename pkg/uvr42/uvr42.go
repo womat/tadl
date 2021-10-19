@@ -103,6 +103,6 @@ func (h *Handler) Get() (UVR42, error) {
 }
 
 // Close the handler
-func (m *Handler) Close() error {
-	return m.ReadCloser.Close()
+func (h *Handler) Close() error {
+	return h.ReadCloser.Close()
 }
