@@ -26,6 +26,11 @@ type Handler struct {
 	rxBuffer []byte
 	// rl lock the rxBuffer until data are received
 	rl sync.Mutex
+
+	rx chan bool
+
+	bitClock time.Duration
+	bitTime  time.Time
 }
 
 // Open listen the dl bus on the configured raspberry pin
@@ -40,7 +45,11 @@ func Open(h raspberry.Pin, f int, b time.Duration) (io.ReadCloser, error) {
 		rxRegister:  0,
 		rxBuffer:    []byte{},
 		rl:          sync.Mutex{},
+		rx:          make(chan bool, 1024),
+		bitClock:    17 * time.Millisecond,
 	}
+
+	go m.bit()
 
 	m.raspi.Input()
 	m.raspi.PullUp()
@@ -75,6 +84,7 @@ func (m *Handler) Close() error {
 	m.raspi.Unwatch()
 	m.rxBuffer = []byte{}
 	m.rl.Unlock()
+	close(m.rx)
 	return nil
 }
 
@@ -84,34 +94,53 @@ func (m *Handler) Close() error {
 // a period is 1/frequency
 func (m *Handler) handler(p raspberry.Pin) {
 	t := time.Now()
+	d := t.Sub(m.time)
+	//debug.TraceLog.Println("clock: ", d)
 
-	if t.Sub(m.time) < 18*time.Millisecond {
+	if d < m.bitClock {
 		return
 	}
 
 	m.time = t
+	m.rx <- !m.raspi.Read()
+}
 
-	if !m.raspi.Read() {
-		m.syncCounter++
+func (m *Handler) bit() {
+	for b := range m.rx {
+		t := time.Now()
+		d := t.Sub(m.bitTime)
+		m.bitTime = t
 
-		if m.syncCounter >= 15 {
-			if !m.isSync {
-				debug.TraceLog.Printf("SYNC detected")
-				m.rl.Lock()
-				m.isSync = true
-				m.rxBit = 0
-				m.rxBuffer = m.rxBuffer[0:0]
-			}
-			return
+		debug.TraceLog.Println("bit received: ", b, d)
+
+		if m.isSync && (d > 23*time.Millisecond || d < 18*time.Millisecond) {
+			debug.DebugLog.Println("bit clock out of range, start sync: ", d)
+			m.rxBuffer = m.rxBuffer[0:0]
+			m.stop()
+			continue
 		}
 
-		m.readBit(true)
-		return
-	}
+		if b {
+			m.syncCounter++
 
-	m.syncCounter = 0
-	m.readBit(false)
-	return
+			if m.syncCounter >= 15 {
+				if !m.isSync {
+					debug.TraceLog.Println("SYNC detected")
+					m.rl.Lock()
+					m.isSync = true
+					m.rxBit = 0
+					m.rxBuffer = m.rxBuffer[0:0]
+				}
+				continue
+			}
+
+			m.readBit(true)
+			continue
+		}
+
+		m.syncCounter = 0
+		m.readBit(false)
+	}
 }
 
 // stop to receiving data from dl bus, writes data to buffer and wait for sync
@@ -140,6 +169,7 @@ func (m *Handler) readBit(bit bool) {
 			m.stop()
 		case m.rxBit == 9:
 			// stop bit received
+			debug.TraceLog.Print("stop bit received")
 			m.rxBuffer = append(m.rxBuffer, m.rxRegister)
 			m.rxBit = 0
 		default:
@@ -153,10 +183,13 @@ func (m *Handler) readBit(bit bool) {
 	switch {
 	case m.rxBit == 0:
 		// start bit received
+		debug.TraceLog.Print("start bit received")
 		m.rxRegister = 0
 		m.rxBit = 1
 	case m.rxBit > 8:
 		// no stop bit received, wait for sync
+		debug.DebugLog.Print("missing stop bit, start sync")
+		m.rxBuffer = m.rxBuffer[0:0]
 		m.stop()
 	default:
 		// data bit received

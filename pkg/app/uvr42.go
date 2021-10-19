@@ -13,6 +13,7 @@ func (app *App) readUVR42() {
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}
+
 			debug.ErrorLog.Println(err)
 		} else {
 			app.uvr42Data = d
