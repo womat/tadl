@@ -3,13 +3,14 @@ package app
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/womat/debug"
 	"io"
 	"math"
+	"time"
+
 	"tadl/pkg/datalogger"
 	"tadl/pkg/mqtt"
 
-	"time"
+	"github.com/womat/debug"
 )
 
 // service wait in an endless loop for valid data logger frames.

@@ -1,11 +1,13 @@
 package dlbus
 
 import (
-	"github.com/womat/debug"
 	"io"
 	"sync"
-	"tadl/pkg/raspberry"
 	"time"
+
+	"tadl/pkg/raspberry"
+
+	"github.com/womat/debug"
 )
 
 // Handler contains the handler to read data from the dl bus.

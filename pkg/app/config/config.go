@@ -17,8 +17,7 @@ import (
 // first letter uppercase -> followed by CamelCase as in the config file.
 // Config defines the struct of global config and the struct of the configuration file
 type Config struct {
-	Flag FlagConfig `yaml:"-"`
-	//	DataFile  string          `yaml:"datafile"`
+	Flag       FlagConfig       `yaml:"-"`
 	DataLogger DataLoggerConfig `yaml:"datalogger"`
 	DLbus      DLbusConfig      `yaml:"dlbus"`
 	MQTT       MQTTConfig       `yaml:"mqtt"`
@@ -142,7 +141,6 @@ func (c *Config) readConfigFile() error {
 
 // setDebugConfig translate the log parameter to values of the debug module and open the log file.
 func (c *Config) setDebugConfig() (err error) {
-	// defines Debug section of global.Config
 	switch s := strings.ToLower(c.Log.FlagString); s {
 	case "trace", "full":
 		c.Log.Flag = debug.Full

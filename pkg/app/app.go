@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/url"
 	"sync"
+
 	"tadl/pkg/app/config"
 	"tadl/pkg/datalogger"
 	"tadl/pkg/dlbus"
@@ -55,8 +56,7 @@ type App struct {
 	shutdown chan struct{}
 }
 
-// New creates and initialize the main app structure:
-//  * parse the web server url
+// New checks the Web server URL and initialize the main app structure
 //  * check if data logger type is supported
 func New(config *config.Config) (*App, error) {
 	u, err := url.Parse(config.Webserver.URL)

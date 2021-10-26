@@ -6,9 +6,8 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/womat/debug"
-
 	"github.com/gofiber/fiber/v2"
+	"github.com/womat/debug"
 )
 
 // HandleHealth returns data about the health of myself.

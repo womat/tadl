@@ -2,7 +2,6 @@ package mqtt
 
 import (
 	mqttlib "github.com/eclipse/paho.mqtt.golang"
-
 	"github.com/womat/debug"
 )
 

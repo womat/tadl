@@ -1,14 +1,16 @@
 package main
 
 import (
-	"github.com/urfave/cli/v2"
-	"github.com/womat/debug"
 	"os"
 	"os/signal"
 	"sort"
 	"syscall"
+
 	"tadl/pkg/app"
 	"tadl/pkg/app/config"
+
+	"github.com/urfave/cli/v2"
+	"github.com/womat/debug"
 )
 
 const defaultConfigFile = "/opt/womat/config/" + app.MODULE + ".yaml"
