@@ -26,7 +26,7 @@ var pins map[int]*RpiPin
 
 type RpiGPIO struct{}
 
-// Open GPIO memory range from /dev/gpiomem .
+// Open GPIO memory range from /dev/gpiomem.
 func Open() (*RpiGPIO, error) {
 	pins = map[int]*RpiPin{}
 

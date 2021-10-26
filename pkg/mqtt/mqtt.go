@@ -11,15 +11,15 @@ const (
 	quiesce = 250
 )
 
-// Handler contains the handler of the mqtt broker
+// Handler contains the handler of the mqtt broker.
 type Handler struct {
 	handler mqttlib.Client
 	// C is the channel to service the mqtt message
-	// sending a message to channel C will send the message
+	// sending a message to channel C will send the message.
 	C chan Message
 }
 
-// Message contains the properties of the mqtt message
+// Message contains the properties of the mqtt message.
 type Message struct {
 	Topic    string
 	Payload  []byte
@@ -27,15 +27,15 @@ type Message struct {
 	Retained bool
 }
 
-// New generate a new mqtt broker client
+// New generate a new mqtt broker client.
 func New() *Handler {
 	return &Handler{
 		C: make(chan Message),
 	}
 }
 
-// Connect connects to the mqtt broker
-// if no broker is defined, mo mqtt message are send
+// Connect connects to the mqtt broker.
+// If no broker is defined, no mqtt message are send.
 func (m *Handler) Connect(broker string) error {
 	if broker == "" {
 		return nil
@@ -46,14 +46,14 @@ func (m *Handler) Connect(broker string) error {
 	return m.ReConnect()
 }
 
-// ReConnect reconnects to the defined mqtt broker
+// ReConnect reconnects to the defined mqtt broker.
 func (m *Handler) ReConnect() error {
 	t := m.handler.Connect()
 	<-t.Done()
 	return t.Error()
 }
 
-// Disconnect will end the connection to the broker
+// Disconnect will end the connection to the broker.
 func (m *Handler) Disconnect() error {
 	if m.handler == nil {
 		return nil
@@ -63,8 +63,8 @@ func (m *Handler) Disconnect() error {
 	return nil
 }
 
-// Service listens to a message on the channel C and sends the message
-// if no handler or topic is defined, the message will be ignored
+// Service listen to a message on the channel C and send the message to mqtt.
+// If no handler or topic is defined, the message will be ignored.
 func (m *Handler) Service() {
 	for d := range m.C {
 		if m.handler == nil || d.Topic == "" {

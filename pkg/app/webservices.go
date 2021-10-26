@@ -14,10 +14,13 @@ func (app *App) runWebServer() {
 	debug.ErrorLog.Print(err)
 }
 
+// HandleData returns the data frame of the controller.
 func (app *App) HandleData() fiber.Handler {
 	return func(ctx *fiber.Ctx) error {
 		debug.InfoLog.Print("web request data")
 
-		return ctx.JSON(app.uvr42Data)
+		app.DataFrame.Lock()
+		defer app.DataFrame.Unlock()
+		return ctx.JSON(app.DataFrame.data)
 	}
 }

@@ -1,5 +1,6 @@
 // https://github.com/mrmorphic/hwio
 // TODO: Use package gpiod https://github.com/warthog618/gpiod
+// other libs: "github.com/stianeikeland/go-rpio", https://periph.io/
 
 // Package raspberry provides functionality for reading and writing to gpio pins
 package raspberry
@@ -10,7 +11,7 @@ import "time"
 type Edge string
 
 const (
-	// EdgeNone indicates no level transitions will trigger an interrupt
+	// EdgeNone indicates no level transitions will trigger an interrupt.
 	EdgeNone Edge = "none"
 
 	// EdgeRising indicates an interrupt is triggered when the Pin transitions from low to high.
@@ -23,13 +24,13 @@ const (
 	EdgeBoth Edge = "both"
 )
 
-// GPIO is the interface implemented by a gpio memory
+// GPIO is the interface implemented by a gpio memory.
 type GPIO interface {
 	Close() error
 	NewPin(int) (Pin, error)
 }
 
-// Pin is the interface implemented by a gpio pin
+// Pin is the interface implemented by a gpio pin.
 type Pin interface {
 	SetBounceTime(time.Duration)
 	Watch(Edge, func(Pin)) error

@@ -33,6 +33,7 @@ func (app *App) HandleHealth() fiber.Handler {
 
 		healthData := struct {
 			NumGoroutines      int
+			NumCPU             int
 			HeapAllocatedBytes uint64
 			HeapAllocatedMB    uint64
 			SysMemoryBytes     uint64
@@ -43,6 +44,7 @@ func (app *App) HandleHealth() fiber.Handler {
 			Time               string
 		}{
 			NumGoroutines:      runtime.NumGoroutine(),
+			NumCPU:             runtime.NumCPU(),
 			HeapAllocatedBytes: hab,
 			HeapAllocatedMB:    bToMb(hab),
 			SysMemoryBytes:     smb,

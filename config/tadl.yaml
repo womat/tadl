@@ -1,32 +1,41 @@
-# gpio >> DL-Bus input gpio pin
-gpio: 4
+datalogger:
+  # type >> controller type
+  # supported controllers: uvr42
+  # default: uvr42
+  type: uvr42
 
-# bouncetime >> time to wait for a stable signal on gpio pin (ms) to get a "clean" level (suppress key bouncing)
-# default: 0
-bouncetime: 0
+dlbus:
+  # gpio >> DL-Bus input gpio pin
+  gpio: 4
+  # bouncetime >> time to wait for a stable signal on gpio pin (ms) to get a "clean" level (suppress key bouncing)
+  # default: 0
+  bouncetime: 0
+  # clock >> display clock in Hz
+  # default: 50
+  clock: 50
 
-# clock >> display clock in Hz
-# default: 50
-clock: 50
-
-# debug activates the debug level and the output device/file
-debug:
+# log activates the debug level and the output device/file
+log:
   # log file e.g. /tmp/emu.log; stderr; stdout
   # default: stderr
   file: stderr
-  # flag: (default: standard)
-  #       standard (default) >> Warning | Info | Error | Fatal
-  #       trace              >> Warning | Info | Error | Fatal | Debug | Trace
-  #       debug              >> Warning | Info | Error | Fatal | Debug
-  flag: trace
+  # flag: (default: Error)
+  #  Warning | Info | Error | Fatal | Debug | Trace
+  flag: Error
 
 mqtt:
   # connection >> defines the connection string to the mqtt broker
   connection: "tcp://raspberrypi4.fritz.box:1883"
-  # interval defines the interval in seconds, in which the measurements are sent to mqqt
-  # default 5 seconds
-  interval: 5
+  # topic is the mqtt topic where the measurement sent
   topic: test/uvr42/summary
+  # interval defines the interval in seconds, in which the measurements are sent to mqqt
+  # the value 0 means, data are only sent when the temperature changes (see parameter deltakelvin)
+  # default 5s
+  interval: 5
+  # deltakelvin defines  the value by which a temperature value must at least change in order for data to be sent to mqtt
+  # the value 0 means, data are only sent by interval (see parameter interval)
+  # default 0.5K
+  deltakelvin: 0.5
 
 # webserver configuration
 webserver:

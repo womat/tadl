@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/womat/debug"
@@ -16,52 +17,68 @@ import (
 // first letter uppercase -> followed by CamelCase as in the config file.
 // Config defines the struct of global config and the struct of the configuration file
 type Config struct {
-	Gpio          int             `yaml:"gpio"`
-	BounceTimeInt int             `yaml:"bouncetime"`
-	BounceTime    time.Duration   `yaml:"-"`
-	Clock         int             `yaml:"clock"`
-	Flag          FlagConfig      `yaml:"-"`
-	DataFile      string          `yaml:"datafile"`
-	Debug         DebugConfig     `yaml:"debug"`
-	Webserver     WebserverConfig `yaml:"webserver"`
-	MQTT          MQTTConfig      `yaml:"mqtt"`
+	Flag FlagConfig `yaml:"-"`
+	//	DataFile  string          `yaml:"datafile"`
+	DataLogger DataLoggerConfig `yaml:"datalogger"`
+	DLbus      DLbusConfig      `yaml:"dlbus"`
+	MQTT       MQTTConfig       `yaml:"mqtt"`
+	Webserver  WebserverConfig  `yaml:"webserver"`
+	Log        LogConfig        `yaml:"log"`
 }
 
-// FlagConfig defines the configured flags (parameters)
+// FlagConfig defines the configured command line flags (parameters).
 type FlagConfig struct {
-	Version    bool
-	Debug      string
-	ConfigFile string
+	LogLevel   string `json:"LogLevel,omitempty" yaml:"LogLevel,omitempty"`
+	ConfigFile string `json:"Config,omitempty" yaml:"Config,omitempty"`
 }
 
-// WebserverConfig defines the struct of the webserver and webservice configuration and configuration file
+// WebserverConfig defines the struct of the webserver and webservice configuration.
 type WebserverConfig struct {
 	URL         string          `yaml:"url"`
 	Webservices map[string]bool `yaml:"webservices"`
 }
 
-// MQTTConfig defines the struct of the mqtt client configuration and configuration file
+// MQTTConfig defines the struct of the mqtt client configuration.
 type MQTTConfig struct {
 	Connection  string        `yaml:"connection"`
 	Interval    time.Duration `yaml:"-"`
 	IntervalInt int           `yaml:"interval"`
+	DeltaKelvin float64       `yaml:"deltakelvin"`
 	Topic       string        `yaml:"topic"`
 }
 
-// DebugConfig defines the struct of the debug configuration and configuration file
-type DebugConfig struct {
+// LogConfig defines the struct of the debug configuration and configuration file.
+type LogConfig struct {
 	File       io.WriteCloser `yaml:"-"`
 	Flag       int            `yaml:"-"`
 	FlagString string         `yaml:"flag"`
 	FileString string         `yaml:"file"`
 }
 
+// DataLoggerConfig defines the struct of the Data Logger.
+type DataLoggerConfig struct {
+	Type string `yaml:"type"`
+}
+
+// DLbusConfig defines the struct of the dl-bus configuration.
+type DLbusConfig struct {
+	Gpio          int           `yaml:"gpio"`
+	BounceTimeInt int           `yaml:"bouncetime"`
+	BounceTime    time.Duration `yaml:"-"`
+	Clock         int           `yaml:"-"`
+}
+
+// NewConfig create the structure of the application configuration.
 func NewConfig() *Config {
 	return &Config{
-		Clock:         50,
-		BounceTimeInt: 0,
-		Flag:          FlagConfig{},
-		Debug: DebugConfig{
+		DataLogger: DataLoggerConfig{
+			Type: "UVR4",
+		},
+		DLbus: DLbusConfig{
+			BounceTimeInt: 0,
+		},
+		Flag: FlagConfig{},
+		Log: LogConfig{
 			FileString: "stderr",
 			FlagString: "standard",
 		},
@@ -74,30 +91,40 @@ func NewConfig() *Config {
 			},
 		},
 		MQTT: MQTTConfig{
-			Connection: "tcp:127.0.0.1883",
-			Interval:   5 * time.Second,
-			Topic:      "/test/uvr42"},
+			Connection:  "tcp:127.0.0.1883",
+			IntervalInt: 5,
+			DeltaKelvin: 0.5,
+			Topic:       "/test/uvr42"},
 	}
 }
 
+// LoadConfig reads the config file and set the application configuration.
 func (c *Config) LoadConfig() error {
 	if err := c.readConfigFile(); err != nil {
 		return fmt.Errorf("error reading config file %q: %w", c.Flag.ConfigFile, err)
 	}
 
-	if c.Flag.Debug != "" {
-		c.Debug.FlagString = c.Flag.Debug
+	if c.Flag.LogLevel != "" {
+		c.Log.FlagString = c.Flag.LogLevel
 	}
 	if err := c.setDebugConfig(); err != nil {
-		return fmt.Errorf("unable to open debug file %q: %w", c.Debug, err)
+		return fmt.Errorf("unable to open debug file %q: %w", c.Log, err)
 	}
 
 	c.MQTT.Interval = time.Duration(c.MQTT.IntervalInt) * time.Second
-	c.BounceTime = time.Duration(c.BounceTimeInt) * time.Millisecond
+	c.DLbus.BounceTime = time.Duration(c.DLbus.BounceTimeInt) * time.Millisecond
+
+	switch l := c.DataLogger.Type; l {
+	case "uvr42":
+		c.DLbus.Clock = 50
+	default:
+		return fmt.Errorf("unsupported Datalogger: %q: ", l)
+	}
 
 	return nil
 }
 
+// readConfigFile read the configuration File and store the content to the config structure.
 func (c *Config) readConfigFile() error {
 	file, err := os.Open(c.Flag.ConfigFile)
 	if err != nil {
@@ -113,24 +140,31 @@ func (c *Config) readConfigFile() error {
 	return nil
 }
 
+// setDebugConfig translate the log parameter to values of the debug module and open the log file.
 func (c *Config) setDebugConfig() (err error) {
 	// defines Debug section of global.Config
-	switch c.Debug.FlagString {
+	switch s := strings.ToLower(c.Log.FlagString); s {
 	case "trace", "full":
-		c.Debug.Flag = debug.Full
+		c.Log.Flag = debug.Full
 	case "debug":
-		c.Debug.Flag = debug.Warning | debug.Info | debug.Error | debug.Fatal | debug.Debug
-	case "standard":
-		c.Debug.Flag = debug.Standard
+		c.Log.Flag = debug.Fatal | debug.Info | debug.Error | debug.Warning | debug.Debug
+	case "warning", "standard":
+		c.Log.Flag = debug.Fatal | debug.Info | debug.Error | debug.Warning
+	case "error":
+		c.Log.Flag = debug.Fatal | debug.Info | debug.Error
+	case "info":
+		c.Log.Flag = debug.Fatal | debug.Info
+	case "fatal":
+		c.Log.Flag = debug.Fatal
 	}
 
-	switch c.Debug.FileString {
+	switch c.Log.FileString {
 	case "stderr":
-		c.Debug.File = os.Stderr
+		c.Log.File = os.Stderr
 	case "stdout":
-		c.Debug.File = os.Stdout
+		c.Log.File = os.Stdout
 	default:
-		if c.Debug.File, err = os.OpenFile(c.Debug.FileString, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o666); err != nil {
+		if c.Log.File, err = os.OpenFile(c.Log.FileString, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o666); err != nil {
 			return
 		}
 	}

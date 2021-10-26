@@ -8,36 +8,36 @@ import (
 	"time"
 )
 
-// Handler contains the raspi of the mqtt broker
+// Handler contains the handler to read data from the dl bus.
 type Handler struct {
-	// raspi is the handler of the raspberry pin, where the dl bus is connected
+	// raspi is the handler of the raspberry pin, where the dl bus is connected.
 	raspi raspberry.Pin
 
-	// clock is the display clock in Hz
+	// clock is the display clock in Hz.
 	clock int
-	// bitClock is a period of the display clock (-15%)
+	// bitClock is a period of the display clock (-15%).
 	bitClock time.Duration
-	// lastLevelChange is the timestamp of the last level change of the manchester code (falling or rising edge)
+	// lastLevelChange is the timestamp of the last level change of the manchester code (falling or rising edge).
 	lastLevelChange time.Time
 
-	// syncCounter is the count of consecutive high bits
+	// syncCounter is the count of consecutive high bits.
 	syncCounter int
-	// isSync marks that a data stream can be received (sync sequence is finish)
+	// isSync marks that a data stream can be received (sync sequence is finished).
 	isSync bool
 
-	// rx channel receives data stream from manchester code
+	// rx channel receives data stream from manchester code.
 	rx chan bool
-	// rxBit is the number of the currently received bit of the rxRegister
+	// rxBit is the number of the currently received bit of the rxRegister.
 	rxBit int
-	// rxRegister is the buffer of the currently received byte
+	// rxRegister is the buffer of the currently received byte.
 	rxRegister byte
-	// rxBuffer is the received data record between two syncs
+	// rxBuffer is the received data record between two syncs.
 	rxBuffer []byte
-	// rl lock the rxBuffer until data are received
+	// rl lock the rxBuffer until data are received.
 	rl sync.Mutex
 }
 
-// Open listen the dl bus on the configured raspberry pin
+// Open starts to listen the dl bus on the configured raspberry pin
 func Open(h raspberry.Pin, c int, b time.Duration) (io.ReadCloser, error) {
 	m := Handler{
 		raspi:           h,
@@ -70,7 +70,7 @@ func Open(h raspberry.Pin, c int, b time.Duration) (io.ReadCloser, error) {
 	return &m, nil
 }
 
-// Read current dl bus frame (data before last sync)
+// Read the current dl bus frame (data before last sync).
 func (m *Handler) Read(b []byte) (int, error) {
 	m.rl.Lock()
 	defer m.rl.Unlock()
@@ -84,7 +84,7 @@ func (m *Handler) Read(b []byte) (int, error) {
 	return n, nil
 }
 
-// Close stops listening dl bus >> stop watching raspberry pin and stops m.service() because of close(m.rx) channel
+// Close stops listening dl bus >> stop watching raspberry pin and stops m.service() because of close(m.rx) channel.
 func (m *Handler) Close() error {
 	m.raspi.Unwatch()
 	m.rxBuffer = []byte{}
@@ -97,11 +97,11 @@ func (m *Handler) Close() error {
 	return nil
 }
 
-// handler listen to raspberry pin and encode manchester code and send the received bits to buffered channel rx
-// decoding manchester code: siehe https://www.elektroniktutor.de/internet/codes.html
-// Nach dem Ethernet-Standard codiert die ansteigende Flanke im Manchestercode die logische 1 als High-Zustand im Datenstrom.
-// Die fallende Flanke im Manchestercode, bezogen auf die zeitliche Abfolge des Datenstroms steht für die logische 0, dem Low-Zustand des Datenstroms.
-// Die Information ist an die Signalflanken gebunden, die Codierung entspricht damit einem digitalen Phase-Shift-Keying-Verfahren.
+// handler is the raspi watch function and listen to raspberry pin and encode manchester code and send the received bits to buffered channel rx.
+//  decoding manchester code: siehe https://www.elektroniktutor.de/internet/codes.html
+//  Nach dem Ethernet-Standard codiert die ansteigende Flanke im Manchestercode die logische 1 als High-Zustand im Datenstrom.
+//  Die fallende Flanke im Manchestercode, bezogen auf die zeitliche Abfolge des Datenstroms steht für die logische 0, dem Low-Zustand des Datenstroms.
+//  Die Information ist an die Signalflanken gebunden, die Codierung entspricht damit einem digitalen Phase-Shift-Keying-Verfahren.
 func (m *Handler) handler(p raspberry.Pin) {
 	t := time.Now()
 
@@ -114,8 +114,7 @@ func (m *Handler) handler(p raspberry.Pin) {
 	m.rx <- !m.raspi.Read()
 }
 
-// service handles incoming bits
-// check sync and receive byte for byte to rxBuffer
+// service receives incoming bits on channel rx. Handle the sync sequence and receive byte for byte to rxBuffer.
 func (m *Handler) service() {
 	bitTime := time.Now()
 	tMin := time.Duration(900/m.clock) * time.Millisecond  // 18ms
@@ -156,7 +155,7 @@ func (m *Handler) service() {
 	}
 }
 
-// stop to receiving data from dl bus and release (unlock) rxBuffer for reader
+// stop receiving data from dl bus and release (unlock) rxBuffer for reader.
 func (m *Handler) stop() {
 	debug.DebugLog.Printf("rxBuffer: %v", m.rxBuffer)
 	m.isSync = false
@@ -165,9 +164,9 @@ func (m *Handler) stop() {
 	return
 }
 
-// readBit gets a bit from dl bus and checks, if bit is a start, a stop or a data bit
-// check start/stop sequences, received data bytes and fill the rxBuffer.
-// if a sync sequence starts, the rxBuffer is competed
+// readBit gets a bit from dl bus and recognizes start, stop and  a data bits.
+// It recognizes start/stop sequences, received the data bytes and fill the rxBuffer.
+// If a sync sequence starts, the rxBuffer is competed.
 func (m *Handler) readBit(bit bool) {
 	if !m.isSync {
 		return
