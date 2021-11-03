@@ -9,11 +9,11 @@ import (
 	"tadl/pkg/app/config"
 	"tadl/pkg/datalogger"
 	"tadl/pkg/dlbus"
-	"tadl/pkg/mqtt"
 	"tadl/pkg/raspberry"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/womat/debug"
+	"github.com/womat/mqtt"
 )
 
 // App is the main application struct and where the application is wired up.
@@ -29,8 +29,8 @@ type App struct {
 	//  url: https://0.0.0.0:7844/?minTls=1.2&bodyLimit=50MB
 	urlParsed *url.URL
 
-	// mqtt is the handler to the mqtt broker.
-	mqtt *mqtt.Handler
+	// PublisherSubscriber is the handler to the mqtt broker.
+	mqtt mqtt.PublisherSubscriber
 
 	// gpio is the handler to the rpi gpio memory.
 	gpio raspberry.GPIO
@@ -69,7 +69,6 @@ func New(config *config.Config) (*App, error) {
 		config:    config,
 		urlParsed: u,
 		web:       fiber.New(),
-		mqtt:      mqtt.New(),
 		restart:   make(chan struct{}),
 		shutdown:  make(chan struct{}),
 	}
@@ -92,7 +91,6 @@ func (app *App) Run() error {
 		return err
 	}
 
-	go app.mqtt.Service()
 	go app.runWebServer()
 	go app.service()
 
@@ -100,12 +98,17 @@ func (app *App) Run() error {
 }
 
 // init initializes the used modules of the application:
+//	* mqtt
 //	* gpio pin
 //	* data logger
-//	* mqtt
 func (app *App) init() (err error) {
 	var lineHandler raspberry.Pin
 	var dl io.ReadCloser
+
+	if app.mqtt, err = mqtt.New(app.config.MQTT.Connection); err != nil {
+		debug.ErrorLog.Printf("can't open mqtt broker %v", err)
+		return err
+	}
 
 	app.gpio, err = raspberry.Open()
 	if err != nil {
@@ -125,11 +128,6 @@ func (app *App) init() (err error) {
 
 	if err = app.dl.Connect(dl); err != nil {
 		debug.ErrorLog.Printf("can't open uvr42 %v", err)
-		return err
-	}
-
-	if err = app.mqtt.Connect(app.config.MQTT.Connection); err != nil {
-		debug.ErrorLog.Printf("can't open mqtt broker %v", err)
 		return err
 	}
 
@@ -157,10 +155,7 @@ func (app *App) Shutdown() <-chan struct{} {
 //  * data logger
 //  * gpio
 func (app *App) Close() error {
-	if app.mqtt != nil {
-		_ = app.mqtt.Disconnect()
-	}
-
+	_ = app.mqtt.Close()
 	_ = app.dl.Close()
 	_ = app.gpio.Close()
 	return nil

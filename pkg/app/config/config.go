@@ -42,7 +42,6 @@ type MQTTConfig struct {
 	Connection  string        `yaml:"connection"`
 	Interval    time.Duration `yaml:"-"`
 	IntervalInt int           `yaml:"interval"`
-	DeltaKelvin float64       `yaml:"deltakelvin"`
 	Topic       string        `yaml:"topic"`
 }
 
@@ -92,7 +91,6 @@ func NewConfig() *Config {
 		MQTT: MQTTConfig{
 			Connection:  "tcp:127.0.0.1883",
 			IntervalInt: 5,
-			DeltaKelvin: 0.5,
 			Topic:       "/test/uvr42"},
 	}
 }
