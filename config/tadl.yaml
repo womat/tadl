@@ -31,7 +31,11 @@ mqtt:
   # interval defines the interval in seconds, in which the measurements are sent to mqqt
   # the value 0 means, data are only sent when the temperature changes (see parameter deltakelvin)
   # default 5s
-  interval: 5
+  interval: 60
+  # deltakelvin defines  the value by which a temperature value must at least change in order for data to be sent to mqtt
+  # the value 0 means, data are only sent by interval (see parameter interval)
+  # default 0.5K
+  deltakelvin: 0.5
 
 # webserver configuration
 webserver:

@@ -37,8 +37,7 @@ func (app *App) service() {
 // validateMeasurements checks the dataframe by deltaT and delta
 // and send dataframe to mqtt if data changed or by send intervall
 func (app *App) validateMeasurements(d interface{}) error {
-	var deltaT time.Duration
-	var delta bool
+	var diff bool
 
 	app.mqttData.Lock()
 	defer app.mqttData.Unlock()
@@ -47,12 +46,12 @@ func (app *App) validateMeasurements(d interface{}) error {
 	case datalogger.UVR42Frame:
 		switch m := app.mqttData.data.(type) {
 		case datalogger.UVR42Frame:
-			deltaT = f.TimeStamp.Sub(m.TimeStamp)
-			delta = f.Out1 != m.Out1 || f.Out2 != m.Out2 ||
-				math.Abs(f.Temperature1-m.Temperature1) > 0 ||
-				math.Abs(f.Temperature2-m.Temperature2) > 0 ||
-				math.Abs(f.Temperature3-m.Temperature3) > 0 ||
-				math.Abs(f.Temperature4-m.Temperature4) > 0
+			diff = f.TimeStamp.Sub(m.TimeStamp) > app.config.MQTT.Interval ||
+				f.Out1 != m.Out1 || f.Out2 != m.Out2 ||
+				math.Abs(f.Temperature1-m.Temperature1) > app.config.MQTT.DeltaKelvin ||
+				math.Abs(f.Temperature2-m.Temperature2) > app.config.MQTT.DeltaKelvin ||
+				math.Abs(f.Temperature3-m.Temperature3) > app.config.MQTT.DeltaKelvin ||
+				math.Abs(f.Temperature4-m.Temperature4) > app.config.MQTT.DeltaKelvin
 		default:
 			return fmt.Errorf("unsupported frame type")
 		}
@@ -60,9 +59,9 @@ func (app *App) validateMeasurements(d interface{}) error {
 		return fmt.Errorf("unsupported frame type")
 	}
 
-	if delta || deltaT >= app.config.MQTT.Interval {
-		app.sendMQTT(app.config.MQTT.Topic, d)
+	if diff {
 		app.mqttData.data = d
+		app.sendMQTT(app.config.MQTT.Topic, app.mqttData.data)
 	}
 
 	return nil
