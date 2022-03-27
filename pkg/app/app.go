@@ -2,13 +2,13 @@ package app
 
 import (
 	"fmt"
-	"io"
 	"net/url"
 	"sync"
 
 	"tadl/pkg/app/config"
 	"tadl/pkg/datalogger"
 	"tadl/pkg/dlbus"
+	"tadl/pkg/manchester"
 	"tadl/pkg/raspberry"
 
 	"github.com/gofiber/fiber/v2"
@@ -32,8 +32,13 @@ type App struct {
 	// PublisherSubscriber is the handler to the mqtt broker.
 	mqtt mqtt.PublisherSubscriber
 
-	// gpio is the handler to the rpi gpio memory.
-	gpio raspberry.GPIO
+	// chip is the handler to the rpi gpio memory.
+	chip *raspberry.Chip
+
+	// gpio is the handler to the rpi gpio.
+	gpio *raspberry.Line
+
+	decoder *manchester.Decoder
 
 	// dl is the handler to the data logger.
 	dl datalogger.DL
@@ -92,7 +97,7 @@ func (app *App) Run() error {
 	}
 
 	go app.runWebServer()
-	go app.service()
+	go app.run()
 
 	return nil
 }
@@ -102,31 +107,26 @@ func (app *App) Run() error {
 //	* gpio pin
 //	* data logger
 func (app *App) init() (err error) {
-	var lineHandler raspberry.Pin
-	var dl io.ReadCloser
+	if app.chip, err = raspberry.Open(); err != nil {
+		debug.ErrorLog.Printf("can't open chip: %v", err)
+		return err
+	}
+	if app.gpio, err = app.chip.Open(app.config.DLbus.Gpio); err != nil {
+		debug.ErrorLog.Printf("can't open gpio: %v", err)
+		return err
+	}
+
+	app.gpio.DebouncePeriod(app.config.DLbus.DebouncePeriod)
 
 	if app.mqtt, err = mqtt.New(app.config.MQTT.Connection); err != nil {
 		debug.ErrorLog.Printf("can't open mqtt broker %v", err)
 		return err
 	}
 
-	app.gpio, err = raspberry.Open()
-	if err != nil {
-		debug.ErrorLog.Printf("can't open gpio: %v", err)
-		return err
-	}
+	decoder := manchester.New(app.gpio.C)
+	io := dlbus.New(decoder.C)
 
-	if lineHandler, err = app.gpio.NewPin(app.config.DLbus.Gpio); err != nil {
-		debug.ErrorLog.Printf("can't open pin: %v", err)
-		return
-	}
-
-	if dl, err = dlbus.Open(lineHandler, app.config.DLbus.Clock, app.config.DLbus.BounceTime); err != nil {
-		debug.ErrorLog.Printf("can't open dl: %v", err)
-		return err
-	}
-
-	if err = app.dl.Connect(dl); err != nil {
+	if err = app.dl.Connect(io); err != nil {
 		debug.ErrorLog.Printf("can't open uvr42 %v", err)
 		return err
 	}
@@ -157,6 +157,8 @@ func (app *App) Shutdown() <-chan struct{} {
 func (app *App) Close() error {
 	_ = app.mqtt.Close()
 	_ = app.dl.Close()
+	_ = app.decoder.Close()
 	_ = app.gpio.Close()
+	_ = app.chip.Close()
 	return nil
 }

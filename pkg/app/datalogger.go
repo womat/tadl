@@ -15,7 +15,7 @@ import (
 
 // service wait in an endless loop for valid data logger frames.
 // It save the data frame to app main structure and send the dataframe to the mqtt broker
-func (app *App) service() {
+func (app *App) run() {
 	for {
 		if err, f := app.dl.Get(); err != nil {
 			if err == io.EOF {

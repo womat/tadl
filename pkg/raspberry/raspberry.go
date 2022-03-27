@@ -1,44 +1,118 @@
-// https://github.com/mrmorphic/hwio
-// TODO: Use package gpiod https://github.com/warthog618/gpiod
-// other libs: "github.com/stianeikeland/go-rpio", https://periph.io/
-
-// Package raspberry provides functionality for reading and writing to gpio pins
+// Package raspberry  is the watcher for gpio ports
 package raspberry
 
-import "time"
+import (
+	"fmt"
+	"time"
 
-// Edge represents the change in Pin level that triggers an interrupt.
-type Edge string
+	"github.com/warthog618/gpiod"
+	"github.com/womat/debug"
 
-const (
-	// EdgeNone indicates no level transitions will trigger an interrupt.
-	EdgeNone Edge = "none"
-
-	// EdgeRising indicates an interrupt is triggered when the Pin transitions from low to high.
-	EdgeRising Edge = "rising"
-
-	// EdgeFalling indicates an interrupt is triggered when the Pin transitions from high to low.
-	EdgeFalling Edge = "falling"
-
-	// EdgeBoth indicates an interrupt is triggered when the Pin changes level.
-	EdgeBoth Edge = "both"
+	"tadl/pkg/port"
 )
 
-// GPIO is the interface implemented by a gpio memory.
-type GPIO interface {
-	Close() error
-	NewPin(int) (Pin, error)
+const (
+	bounceTime = time.Microsecond * 100
+)
+
+// lines contains all open lines and must be global in package,
+// the handler function handler(evt gpiod.LineEvent) needs the line handlers
+var lines map[int]*Line
+
+// Chip represents a single GPIO chip that controls a set of lines.
+type Chip struct {
+	gpiodChip *gpiod.Chip
 }
 
-// Pin is the interface implemented by a gpio pin.
-type Pin interface {
-	SetBounceTime(time.Duration)
-	Watch(Edge, func(Pin)) error
-	Unwatch()
-	Input()
-	PullUp()
-	PullDown()
-	Pin() int
-	Read() bool
-	EmuEdge(Edge)
+// Line represents a single requested line.
+type Line struct {
+	gpiodLine *gpiod.Line
+	gpiodChip *gpiod.Chip
+	lastEvent time.Duration
+	debounce  time.Duration
+	// send edge changes to channel
+	C chan port.Event
+}
+
+// Open opens a GPIO character device and initialize the global lines slice
+func Open() (*Chip, error) {
+	lines = map[int]*Line{}
+
+	c, err := gpiod.NewChip("gpiochip0")
+	chip := Chip{gpiodChip: c}
+	return &chip, err
+}
+
+// Open requests control of a single line on a chip.
+//   If granted, control is maintained until the Line is closed.
+//   Watch the line for edge changes and send the changes after bounce timeout to chanel C.
+//   There can only be one watcher on the pin at a time.
+func (c *Chip) Open(gpio int) (*Line, error) {
+	var err error
+
+	if _, ok := lines[gpio]; ok {
+		return nil, fmt.Errorf("line %v already used", gpio)
+	}
+
+	l := &Line{
+		gpiodChip: c.gpiodChip,
+		debounce:  bounceTime,
+		C:         make(chan port.Event)}
+
+	l.gpiodLine, err = c.gpiodChip.RequestLine(gpio, gpiod.WithEventHandler(handler),
+		gpiod.WithBothEdges, gpiod.AsInput)
+
+	lines[gpio] = l
+	return l, err
+}
+
+func (l *Line) DebouncePeriod(d time.Duration) {
+	l.debounce = d
+}
+
+// Close releases the Chip.
+//
+// It does not release any lines which may be requested - they must be closed
+// independently.
+func (c *Chip) Close() (err error) {
+	return c.gpiodChip.Close()
+}
+
+// Close releases all resources held by the requested line.
+//
+// Note that this includes waiting for any running event handler to return.
+// As a consequence the Close must not be called from the context of the event
+// handler - the Close should be called from a different goroutine.
+func (l *Line) Close() (err error) {
+	close(l.C)
+	return l.gpiodLine.Close()
+}
+
+// handler check the bounce timeout and send the event to channel C
+func handler(evt gpiod.LineEvent) {
+	// check if map with pin struct exists
+	line, ok := lines[evt.Offset]
+	if !ok {
+		return
+	}
+
+	var p time.Duration
+
+	p, line.lastEvent = evt.Timestamp-line.lastEvent, evt.Timestamp
+
+	if p < line.debounce {
+		debug.TraceLog.Printf("ignore bounce: %v:", p)
+		return
+	}
+
+	event := port.Event{Timestamp: evt.Timestamp}
+
+	switch evt.Type {
+	case gpiod.LineEventFallingEdge:
+		event.Type = port.FallingEdge
+	case gpiod.LineEventRisingEdge:
+		event.Type = port.RisingEdge
+	}
+
+	line.C <- event
 }
