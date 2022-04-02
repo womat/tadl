@@ -137,8 +137,8 @@ func (d *Decoder) eventHandler(event port.Event) {
 					d.eventSamples = nil
 					debug.InfoLog.Println("synchronizing clock for manchester decoding finished")
 					debug.InfoLog.Printf("clock: %.1f Hz\n", 1/float64(fullPeriod)*float64(time.Second))
-					debug.DebugLog.Printf("full bit period: %v\n", fullPeriod)
-					debug.DebugLog.Printf("half bit period: %v\n", halfPeriod)
+					debug.InfoLog.Printf("full bit period: %v\n", fullPeriod)
+					debug.InfoLog.Printf("half bit period: %v\n", halfPeriod)
 				}()
 			}
 		}

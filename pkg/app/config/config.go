@@ -61,9 +61,10 @@ type DataLoggerConfig struct {
 
 // DLbusConfig defines the struct of the dl-bus configuration.
 type DLbusConfig struct {
-	Gpio              int           `yaml:"gpio"`
-	DebouncePeriodInt int           `yaml:"debounceperiod"`
-	DebouncePeriod    time.Duration `yaml:"-"`
+	Gpio              int  `yaml:"gpio"`
+	DebouncePeriodInt int  `yaml:"debounceperiod"`
+	PullUp            bool `yaml:"pullup"`
+	PullDown          bool `yaml:"pulldown"`
 }
 
 // NewConfig create the structure of the application configuration.
@@ -108,7 +109,6 @@ func (c *Config) LoadConfig() error {
 	}
 
 	c.MQTT.Interval = time.Duration(c.MQTT.IntervalInt) * time.Second
-	c.DLbus.DebouncePeriod = time.Duration(c.DLbus.DebouncePeriodInt) * time.Microsecond
 
 	switch l := c.DataLogger.Type; l {
 	case "uvr42":

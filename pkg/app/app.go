@@ -111,12 +111,26 @@ func (app *App) init() (err error) {
 		debug.ErrorLog.Printf("can't open chip: %v", err)
 		return err
 	}
-	if app.gpio, err = app.chip.Open(app.config.DLbus.Gpio); err != nil {
+
+	var params string
+	if app.config.DLbus.PullUp {
+		params = fmt.Sprintf("%v %s %v", app.config.DLbus.Gpio, "pullup", app.config.DLbus.DebouncePeriodInt)
+	} else {
+		if app.config.DLbus.PullDown {
+			params = fmt.Sprintf("%v %s %v", app.config.DLbus.Gpio, "pulldown", app.config.DLbus.DebouncePeriodInt)
+		} else {
+			params = fmt.Sprintf("%v %s %v", app.config.DLbus.Gpio, "none", app.config.DLbus.DebouncePeriodInt)
+		}
+	}
+
+	debug.DebugLog.Printf("open gpio params: %s", params)
+
+	if app.gpio, err = app.chip.Open(params); err != nil {
 		debug.ErrorLog.Printf("can't open gpio: %v", err)
 		return err
 	}
 
-	app.gpio.DebouncePeriod(app.config.DLbus.DebouncePeriod)
+	//	app.gpio.DebouncePeriod(app.config.DLbus.DebouncePeriod)
 
 	if app.mqtt, err = mqtt.New(app.config.MQTT.Connection); err != nil {
 		debug.ErrorLog.Printf("can't open mqtt broker %v", err)
