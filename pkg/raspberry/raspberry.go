@@ -13,10 +13,6 @@ import (
 	"tadl/pkg/port"
 )
 
-const (
-	bounceTime = time.Microsecond * 100
-)
-
 // lines contains all open lines and must be global in package,
 // the handler function handler(evt gpiod.LineEvent) needs the line handlers
 var lines map[int]*Line
@@ -90,7 +86,7 @@ func (c *Chip) Open(param string) (*Line, error) {
 			gpiod.WithBothEdges, gpiod.AsInput, gpiod.WithPullDown)
 	case "none":
 		l.gpiodLine, err = c.gpiodChip.RequestLine(gpio, gpiod.WithEventHandler(handler),
-			gpiod.WithBothEdges, gpiod.AsInput)
+			gpiod.WithBothEdges, gpiod.AsInput, gpiod.WithDebounce(999))
 	default:
 		return nil, ErrInvalidParam
 	}
@@ -128,6 +124,8 @@ func handler(evt gpiod.LineEvent) {
 	var p time.Duration
 
 	p, line.lastEvent = evt.Timestamp-line.lastEvent, evt.Timestamp
+
+	// debug.InfoLog.Printf("tick: %v:", p)
 
 	if p < line.debounce {
 		debug.ErrorLog.Printf("ignore bounce: %v:", p)
