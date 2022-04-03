@@ -3,13 +3,9 @@ package raspberry
 
 import (
 	"fmt"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/warthog618/gpiod"
-	"github.com/womat/debug"
-
 	"tadl/pkg/port"
 )
 
@@ -27,6 +23,7 @@ type Chip struct {
 type Line struct {
 	gpiodLine *gpiod.Line
 	gpiodChip *gpiod.Chip
+	gpio      int
 	lastEvent time.Duration
 	debounce  time.Duration
 	// send edge changes to channel
@@ -42,31 +39,12 @@ func Open() (*Chip, error) {
 	return &chip, err
 }
 
-// Open requests control of a single line on a chip.
+// NewLine requests control of a single line on a chip.
 //   If granted, control is maintained until the Line is closed.
 //   Watch the line for edge changes and send the changes after bounce timeout to chanel C.
 //   There can only be one watcher on the pin at a time.
-// config string: "gpio pullup|pulldown|none debounce(microseconds)"
-//     e.g: "4 pullup 1000" or "4 none 0"
-
-func (c *Chip) Open(param string) (*Line, error) {
+func (c *Chip) NewLine(gpio int, terminator string, debounce time.Duration) (*Line, error) {
 	var err error
-	var gpio, i int
-
-	params := strings.Fields(param)
-	if len(params) != 3 {
-		return nil, ErrInvalidParam
-	}
-
-	gpio, err = strconv.Atoi(params[0])
-	if err != nil {
-		return nil, ErrInvalidParam
-	}
-
-	i, err = strconv.Atoi(params[2])
-	if err != nil {
-		return nil, ErrInvalidParam
-	}
 
 	if _, ok := lines[gpio]; ok {
 		return nil, fmt.Errorf("line %v already used", gpio)
@@ -74,10 +52,10 @@ func (c *Chip) Open(param string) (*Line, error) {
 
 	l := &Line{
 		gpiodChip: c.gpiodChip,
-		debounce:  time.Duration(i) * time.Microsecond,
+		debounce:  debounce,
 		C:         make(chan port.Event)}
 
-	switch params[1] {
+	switch terminator {
 	case "pullup":
 		l.gpiodLine, err = c.gpiodChip.RequestLine(gpio, gpiod.WithEventHandler(handler),
 			gpiod.WithBothEdges, gpiod.AsInput, gpiod.WithPullUp)
@@ -99,7 +77,7 @@ func (c *Chip) Open(param string) (*Line, error) {
 //
 // It does not release any lines which may be requested - they must be closed
 // independently.
-func (c *Chip) Close() (err error) {
+func (c *Chip) Close() error {
 	return c.gpiodChip.Close()
 }
 
@@ -108,9 +86,12 @@ func (c *Chip) Close() (err error) {
 // Note that this includes waiting for any running event handler to return.
 // As a consequence the Close must not be called from the context of the event
 // handler - the Close should be called from a different goroutine.
-func (l *Line) Close() (err error) {
+func (l *Line) Close() error {
+	if err := l.gpiodLine.Close(); err != nil {
+		return err
+	}
 	close(l.C)
-	return l.gpiodLine.Close()
+	return nil
 }
 
 // handler check the bounce timeout and send the event to channel C
@@ -122,13 +103,9 @@ func handler(evt gpiod.LineEvent) {
 	}
 
 	var p time.Duration
-
 	p, line.lastEvent = evt.Timestamp-line.lastEvent, evt.Timestamp
 
-	// debug.InfoLog.Printf("tick: %v:", p)
-
 	if p < line.debounce {
-		debug.ErrorLog.Printf("ignore bounce: %v:", p)
 		return
 	}
 

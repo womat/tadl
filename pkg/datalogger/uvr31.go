@@ -3,14 +3,12 @@ package datalogger
 import (
 	"encoding/binary"
 	"io"
-	"math"
 	"time"
 )
 
 // UVR31Handler is the handler to read an uvr42 dataframe.
 type UVR31Handler struct {
 	io.ReadCloser
-	lastValue UVR31Frame
 }
 
 // UVR31Frame is the dataframe of an uvr42 controller.
@@ -36,7 +34,7 @@ func (h *UVR31Handler) Connect(handler io.ReadCloser) error {
 // Get reads the DL buffer, convert the buffer to an uvr31 structure and check the values.
 // The temperature values are valid, if the current values are within a temperature range (tMax, tMin) and
 // the difference to the last measured values are less than maxDelta.
-func (h *UVR31Handler) Get() (error, interface{}) {
+func (h *UVR31Handler) Get() (interface{}, error) {
 	var f UVR31Frame
 	// bitmask of Out1
 	const out1 = 1 << 5
@@ -46,15 +44,15 @@ func (h *UVR31Handler) Get() (error, interface{}) {
 	n, err := h.Read(b)
 
 	if err != nil {
-		return err, f
+		return f, err
 	}
 
 	if n != 8 {
-		return ErrInvalidSize, f
+		return f, ErrInvalidSize
 	}
 
 	if b[0] != uvr31 {
-		return ErrUnsupportedDevice, f
+		return f, ErrUnsupportedDevice
 	}
 
 	f.TimeStamp = time.Now()
@@ -63,18 +61,12 @@ func (h *UVR31Handler) Get() (error, interface{}) {
 	f.Temperature3 = float64(int16(binary.LittleEndian.Uint16(b[5:7]))) / 10
 	f.Out1 = b[9]&out1 > 0
 
-	if !h.lastValue.TimeStamp.IsZero() && (math.Abs(f.Temperature1-h.lastValue.Temperature1) > maxDelta ||
-		math.Abs(f.Temperature2-h.lastValue.Temperature2) > maxDelta ||
-		math.Abs(f.Temperature3-h.lastValue.Temperature3) > maxDelta) {
-		return ErrInvalidTemperature, f
-	}
-
 	if f.Temperature1 > tMax || f.Temperature2 > tMax || f.Temperature3 > tMax ||
 		f.Temperature1 < tMin || f.Temperature2 < tMin || f.Temperature3 < tMin {
-		return ErrInvalidTemperature, f
+		return f, ErrInvalidTemperature
 	}
 
-	return nil, f
+	return f, nil
 }
 
 // Close the ReadCloser handler.

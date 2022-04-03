@@ -1,10 +1,8 @@
 package app
 
 import (
-	"fmt"
 	"net/url"
 	"sync"
-
 	"tadl/pkg/app/config"
 	"tadl/pkg/datalogger"
 	"tadl/pkg/dlbus"
@@ -38,7 +36,12 @@ type App struct {
 	// gpio is the handler to the rpi gpio.
 	gpio *raspberry.Line
 
+	// decoder ist the handler of the manchester decoder
 	decoder *manchester.Decoder
+
+	// dlbus ist the handler of the dlbus
+	dlbus *dlbus.ReadCloser
+	//ReadCloser
 
 	// dl is the handler to the data logger.
 	dl datalogger.DL
@@ -62,7 +65,6 @@ type App struct {
 }
 
 // New checks the Web server URL and initialize the main app structure
-//  * check if data logger type is supported
 func New(config *config.Config) (*App, error) {
 	u, err := url.Parse(config.Webserver.URL)
 	if err != nil {
@@ -78,15 +80,6 @@ func New(config *config.Config) (*App, error) {
 		shutdown:  make(chan struct{}),
 	}
 
-	switch t := config.DataLogger.Type; t {
-	case "uvr42":
-		app.dl = datalogger.NewUVR42()
-		app.DataFrame.data = datalogger.UVR42Frame{}
-		app.mqttData.data = datalogger.UVR42Frame{}
-	default:
-		return &App{}, fmt.Errorf("unsupported data logger: %q", t)
-	}
-
 	return &app, err
 }
 
@@ -97,51 +90,56 @@ func (app *App) Run() error {
 	}
 
 	go app.runWebServer()
+
+	// receive data frames from datalogger and sent it to mqtt broker
 	go app.run()
 
 	return nil
 }
 
 // init initializes the used modules of the application:
+//  * check if data logger type is supported
 //	* mqtt
 //	* gpio pin
 //	* data logger
 func (app *App) init() (err error) {
+	// initialize gpio
 	if app.chip, err = raspberry.Open(); err != nil {
 		debug.ErrorLog.Printf("can't open chip: %v", err)
 		return err
 	}
 
-	var params string
-	if app.config.DLbus.PullUp {
-		params = fmt.Sprintf("%v %s %v", app.config.DLbus.Gpio, "pullup", app.config.DLbus.DebouncePeriodInt)
-	} else {
-		if app.config.DLbus.PullDown {
-			params = fmt.Sprintf("%v %s %v", app.config.DLbus.Gpio, "pulldown", app.config.DLbus.DebouncePeriodInt)
-		} else {
-			params = fmt.Sprintf("%v %s %v", app.config.DLbus.Gpio, "none", app.config.DLbus.DebouncePeriodInt)
-		}
-	}
-
-	debug.DebugLog.Printf("open gpio params: %s", params)
-
-	if app.gpio, err = app.chip.Open(params); err != nil {
-		debug.ErrorLog.Printf("can't open gpio: %v", err)
+	// requests control of gpio pin
+	if app.gpio, err = app.chip.NewLine(app.config.DLbus.Gpio, app.config.DLbus.Terminator, app.config.DLbus.DebouncePeriod); err != nil {
+		debug.ErrorLog.Printf("can't open to gpio: %v", err)
 		return err
 	}
 
-	//	app.gpio.DebouncePeriod(app.config.DLbus.DebouncePeriod)
+	// start manchaster decoder
+	decoder := manchester.New(app.gpio.C)
 
+	// start dlbus decoder
+	app.dlbus = dlbus.NewReader(decoder.C)
+
+	// initialize datalogger reader
+	switch t := app.config.DataLogger.Type; t {
+	case "uvr42":
+		app.dl = datalogger.NewUVR42()
+		app.DataFrame.data = datalogger.UVR42Frame{}
+		app.mqttData.data = datalogger.UVR42Frame{}
+	default:
+		debug.ErrorLog.Printf("unsupported data logger: %q", t)
+	}
+
+	// start datenlogger reader
+	if err = app.dl.Connect(app.dlbus); err != nil {
+		debug.ErrorLog.Printf("can't open uvr42 %v", err)
+		return err
+	}
+
+	// initialize mqtt handler and connect to mqtt broker
 	if app.mqtt, err = mqtt.New(app.config.MQTT.Connection); err != nil {
 		debug.ErrorLog.Printf("can't open mqtt broker %v", err)
-		return err
-	}
-
-	decoder := manchester.New(app.gpio.C)
-	io := dlbus.New(decoder.C)
-
-	if err = app.dl.Connect(io); err != nil {
-		debug.ErrorLog.Printf("can't open uvr42 %v", err)
 		return err
 	}
 
@@ -171,8 +169,10 @@ func (app *App) Shutdown() <-chan struct{} {
 func (app *App) Close() error {
 	_ = app.mqtt.Close()
 	_ = app.dl.Close()
-	_ = app.decoder.Close()
+	_ = app.dlbus.Close()
+	//_ = app.decoder.Close()
 	_ = app.gpio.Close()
 	_ = app.chip.Close()
+
 	return nil
 }

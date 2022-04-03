@@ -19,7 +19,7 @@ type DL interface {
 	// and checks weather the values of temperature values are valid:
 	//  * the current values are within a temperature range
 	//  * and the difference to the last measured values are less than maxDelta
-	Get() (error, interface{})
+	Get() (interface{}, error)
 	// Close the handler (ReadCloser).
 	Close() error
 }
@@ -32,7 +32,4 @@ const (
 	// max temperature range
 	tMax = 300
 	tMin = -50
-
-	// max temperature difference to the last measurement
-	maxDelta = 50
 )

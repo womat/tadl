@@ -5,7 +5,6 @@ import (
 	"os/signal"
 	"sort"
 	"syscall"
-
 	"tadl/pkg/app"
 	"tadl/pkg/app/config"
 

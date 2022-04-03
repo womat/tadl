@@ -52,38 +52,38 @@ type Decoder struct {
 	rx chan port.Event
 
 	// quit is the channel to stop the Decoder
-	quit chan struct{}
+	quit chan bool
+	// done signals that handler is stopped
+	done chan bool
 }
 
 // New initials a new Decoder
 func New(c chan port.Event) *Decoder {
-	h := Decoder{
+	d := Decoder{
 		C:    make(chan port.StateType),
 		rx:   c,
-		quit: make(chan struct{}),
+		quit: make(chan bool),
+		done: make(chan bool),
 	}
 
 	// start synchronizing manchester bit periods
-	h.reset()
+	d.reset()
 	debug.InfoLog.Print("synchronizing clock for manchester decoding started")
 
-	go h.run()
-	return &h
+	go d.run()
+	return &d
 }
 
 // Close stops decoding
 func (d *Decoder) Close() error {
-	debug.TraceLog.Println("close decoding handler")
-
-	d.quit <- struct{}{}
+	d.quit <- true
 
 	// wait until run() is terminated
-	<-d.quit
-
-	debug.TraceLog.Println("decoding handler closed")
+	<-d.done
 
 	close(d.C)
 	close(d.quit)
+	close(d.done)
 	return nil
 }
 
@@ -92,12 +92,11 @@ func (d *Decoder) run() {
 	for {
 		select {
 		case <-d.quit:
-			debug.TraceLog.Println("terminate decoding handler")
+			d.done <- true
 			return
 		case evt, open := <-d.rx:
 			if !open {
-				debug.TraceLog.Println("rx channel is closed, quit decoding handler")
-				d.quit <- struct{}{}
+				d.quit <- true
 				continue
 			}
 
@@ -163,7 +162,7 @@ func (d *Decoder) eventHandler(event port.Event) {
 
 		if period >= d.fullPeriodMin && period <= d.fullPeriodMax {
 			if d.firstHalfBit {
-				debug.ErrorLog.Println("illegal previous half period")
+				debug.DebugLog.Println("illegal previous half period")
 
 				d.firstHalfBit = false
 				d.C <- port.Invalid
@@ -179,11 +178,8 @@ func (d *Decoder) eventHandler(event port.Event) {
 			return
 		}
 
-		debug.ErrorLog.Printf("invalid bit period: %v:", period)
+		debug.DebugLog.Printf("invalid bit period: %v:", period)
 		d.firstHalfBit = false
-		// start synchronizing clock
-		// debug.DebugLog.Print(" clock synchronizing for manchester decoding started")
-		// m.reset()		d.C <- port.Invalid
 		d.C <- port.Invalid
 	}
 }

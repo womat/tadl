@@ -17,7 +17,7 @@ import (
 // It save the data frame to app main structure and send the dataframe to the mqtt broker
 func (app *App) run() {
 	for {
-		if err, f := app.dl.Get(); err != nil {
+		if f, err := app.dl.Get(); err != nil {
 			if err == io.EOF {
 				time.Sleep(100 * time.Millisecond)
 				continue
@@ -35,7 +35,7 @@ func (app *App) run() {
 }
 
 // validateMeasurements checks the dataframe by deltaT and delta
-// and send dataframe to mqtt if data changed or by send intervall
+// and send dataframe to mqtt if data changed or by send interval
 func (app *App) validateMeasurements(d interface{}) error {
 	var diff bool
 
@@ -83,5 +83,4 @@ func (app *App) sendMQTT(topic string, msg interface{}) {
 		Topic:    topic,
 		Payload:  b,
 	})
-
 }

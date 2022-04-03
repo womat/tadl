@@ -7,11 +7,14 @@ datalogger:
 dlbus:
   # gpio >> DL-Bus input gpio pin
   gpio: 4
-  # debounceperiod >> time to wait for a stable signal on gpio pin (micro seconds) to get a "clean" level (suppress key bouncing)
+  # debounceperiod >> time to wait for a stable signal on gpio pin (micro seconds)
+  #                   to get a "clean" level (suppress key bouncing)
   # default: 0
   debounceperiod: 0
-  pullup: false
-  pulldown: false
+  # terminator defines the termination of the gpio line
+  # supported values: pullup | pulldown | none
+  # default: none
+  terminator: none
 
 # log activates the debug level and the output device/file
 log:
