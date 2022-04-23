@@ -20,8 +20,10 @@ const (
 	// eventSamples are the count of event samples to calculate the clock.
 	eventSamples = 500
 
-	//synchronizing is the process state to synchronize to clock.
-	synchronizing stateType = iota
+	//discoverClock is the process the clock frequency
+	discoverClock stateType = iota
+	//synchronizing is the process to synchronize to the clock (distinguish a bit edge from a mid-bit transition)
+	synchronizing
 	// synchronized is the process state to decode edge events.
 	synchronized
 )
@@ -31,7 +33,7 @@ type stateType int
 
 // Decoder represents the handler of the Decoder.
 type Decoder struct {
-	// state contains the current decoding state (synchronizing/synchronized).
+	// state contains the current decoding state (discoverClock/discoverClock/synchronized).
 	state stateType
 	// eventSamples holds event samples to calculate bit periods.
 	eventSamples []time.Duration
@@ -41,11 +43,9 @@ type Decoder struct {
 
 	// defines the calculated bit periods
 	SignalT             time.Duration
-	prevBit             bool
 	lastPeriodTimestamp time.Duration
 	Sensitivity         time.Duration
 
-	cnt int
 	// C is the channel to send the decoded bit stream
 	C chan port.StateType
 
@@ -68,8 +68,9 @@ func New(c chan port.Event) *Decoder {
 	}
 
 	// start synchronizing manchester bit periods
-	d.reset()
-	debug.InfoLog.Print("synchronizing clock for manchester decoding started")
+	d.eventSamples = make([]time.Duration, 0, eventSamples)
+	d.state = discoverClock
+	debug.InfoLog.Print("discovering clock frequency started")
 
 	go d.run()
 	return &d
@@ -107,8 +108,10 @@ func (d *Decoder) run() {
 }
 
 // EventHandler decodes line events (edges) to a bit stream and includes:
-//  * synchronizing clock:
-//           the clock is synchronized by analyzing the bit periods (measuring full bit periods)
+//  * discoverClock:
+//           the clock frequency is discovered by analyzing the bit periods (measuring full bit periods)
+//  * synchronizing:
+//          synchronize to the clock (distinguish a bit edge from a mid-bit transition)
 //  * decode line events:
 //           High: falling edge while a full bit period
 //                 or a falling edge while the second half of a half bit period
@@ -120,7 +123,7 @@ func (d *Decoder) eventHandler(event port.Event) {
 	d.lastTimestamp = event.Timestamp
 
 	switch d.state {
-	case synchronizing:
+	case discoverClock:
 		if len(d.eventSamples) < eventSamples {
 			d.eventSamples = append(d.eventSamples, period)
 
@@ -128,82 +131,52 @@ func (d *Decoder) eventHandler(event port.Event) {
 				halfPeriod, fullPeriod := calcBitPeriods(d.eventSamples)
 
 				d.SignalT = halfPeriod
-				d.lastPeriodTimestamp = -1
 				d.Sensitivity = time.Duration(float64(d.SignalT) * SensitivityFactor)
-				d.prevBit = false
 
-				debug.InfoLog.Println("synchronizing clock for manchester decoding finished")
+				debug.InfoLog.Println("discovering clock frequency finished")
 				debug.InfoLog.Printf("clock: %.1f Hz\n", 1/fullPeriod.Seconds())
 				debug.InfoLog.Printf("SignalT: %v\n", d.SignalT)
 				debug.InfoLog.Printf("Sensitivity: %v\n", d.Sensitivity)
 
-				d.state = synchronized
+				d.state = synchronizing
 				d.eventSamples = nil
 			}
 		}
 
-	case synchronized:
-		intervalMultiplierRounded := func(timeStamp time.Duration) int {
-			if d.lastPeriodTimestamp == -1 {
-				if dur := (period - d.Sensitivity) / d.SignalT; dur < 1 {
-					debug.TraceLog.Printf("wait for dur > 0 (%v)", dur)
-					return -2
-				}
+	case synchronizing:
+		interval := (period - d.Sensitivity) / d.SignalT
 
-				return -1
-			}
-
-			duration := timeStamp - d.lastPeriodTimestamp
-			dur := int((duration-d.Sensitivity)/d.SignalT) + 1
-			return dur
-		}
-
-		if d.cnt < 10 {
-			debug.TraceLog.Printf("     period: %v", period)
-		}
-
-		switch interval := intervalMultiplierRounded(event.Timestamp); interval {
-		case -2:
-			return
-		case -1:
-			debug.TraceLog.Printf("d.lastPeriodTimestamp == -1, calc lastPeriodTimestamp")
+		if interval > 0 && event.Type == port.FallingEdge {
+			debug.InfoLog.Println("synchronizing with the data clock finished")
 
 			d.lastPeriodTimestamp = event.Timestamp - d.SignalT
+			d.state = synchronized
 			return
+		}
+
+	case synchronized:
+		duration := event.Timestamp - d.lastPeriodTimestamp
+		interval := (duration-d.Sensitivity)/d.SignalT + 1
+
+		switch interval {
 		case 2:
-			if d.cnt < 10 {
-				debug.TraceLog.Printf("     interval: %v (%v)", interval, event.Timestamp-d.lastPeriodTimestamp)
-			}
-			d.cnt++
 			d.lastPeriodTimestamp = event.Timestamp
+
 		case 1, 3:
 			switch event.Type {
 			case port.RisingEdge:
-				if d.cnt < 10 {
-					debug.TraceLog.Printf("LOW  interval: %v (%v)", interval, event.Timestamp-d.lastPeriodTimestamp)
-				}
-				d.cnt++
 				d.C <- port.Low
 			case port.FallingEdge:
-				if d.cnt < 10 {
-					debug.TraceLog.Printf("HIGH interval: %v (%v)", interval, event.Timestamp-d.lastPeriodTimestamp)
-				}
-				d.cnt++
 				d.C <- port.High
-			default:
-				d.lastPeriodTimestamp = -1
-
-				debug.FatalLog.Println("invalid event.Type %v", event.Type)
-				panic("invalid event.Type")
-				return
 			}
 
 			d.lastPeriodTimestamp = event.Timestamp - d.SignalT
+
 		default:
 			debug.ErrorLog.Println("invalid interval: %v", interval)
 
 			d.C <- port.Invalid
-			d.lastPeriodTimestamp = -1
+			d.state = synchronizing
 		}
 	}
 }
@@ -245,10 +218,4 @@ func calcBitPeriods(samples []time.Duration) (halfBitPeriod, fullBitPeriod time.
 	}
 
 	return halfBitPeriod, fullBitPeriod
-}
-
-// reset restarts to synchronize manchester bit periods
-func (d *Decoder) reset() {
-	d.eventSamples = make([]time.Duration, 0, eventSamples)
-	d.state = synchronizing
 }
