@@ -43,12 +43,11 @@ func (c *Chip) NewLine(gpio int, terminator string, debounce time.Duration) (*Li
 
 	// handler check the bounce timeout and send the event to channel C
 	handler := func(evt gpiod.LineEvent) {
-		p := evt.Timestamp - line.lastEvent
-		line.lastEvent = evt.Timestamp
-
-		if p < debounce {
+		if evt.Timestamp-line.lastEvent < debounce {
 			return
 		}
+
+		line.lastEvent = evt.Timestamp
 
 		switch evt.Type {
 		case gpiod.LineEventFallingEdge:
