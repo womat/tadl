@@ -37,7 +37,7 @@ type Decoder struct {
 	eventSamples []time.Duration
 
 	// lastTimestamp is the time of the last detected event.
-	//	lastTimestamp time.Duration
+	lastTimestamp time.Duration
 
 	// defines the calculated bit periods
 	SignalT             time.Duration
@@ -45,6 +45,7 @@ type Decoder struct {
 	lastPeriodTimestamp time.Duration
 	Sensitivity         time.Duration
 
+	cnt int
 	// C is the channel to send the decoded bit stream
 	C chan port.StateType
 
@@ -115,12 +116,12 @@ func (d *Decoder) run() {
 //                 or a rising edge while the second half of a half bit period
 //  decoding manchester code:  https://www.elektroniktutor.de/internet/codes.html
 func (d *Decoder) eventHandler(event port.Event) {
+	period := event.Timestamp - d.lastTimestamp
+	d.lastTimestamp = event.Timestamp
+
 	switch d.state {
 	case synchronizing:
 		if len(d.eventSamples) < eventSamples {
-			period := event.Timestamp - d.lastPeriodTimestamp
-			d.lastPeriodTimestamp = event.Timestamp
-
 			d.eventSamples = append(d.eventSamples, period)
 
 			if len(d.eventSamples) == eventSamples {
@@ -144,39 +145,61 @@ func (d *Decoder) eventHandler(event port.Event) {
 	case synchronized:
 		intervalMultiplierRounded := func(timeStamp time.Duration) int {
 			if d.lastPeriodTimestamp == -1 {
-				debug.ErrorLog.Println("lastPeriodStartNs is -1")
-				return 1
+				debug.FatalLog.Println("lastPeriodStartNs is -1")
+				panic("in function intervalMultiplierRounded() the d.lastPeriodStartNs is -1")
 			}
 
 			duration := timeStamp - d.lastPeriodTimestamp
-
-			ns := d.SignalT.Nanoseconds()
-			dur := int(1 + int64(duration-d.Sensitivity)/ns)
-
+			dur := int((duration-d.Sensitivity)/d.SignalT) + 1
 			return dur
 		}
 
-		updater := func(e port.EventType) {
-			switch e {
-			case port.RisingEdge:
-				d.C <- port.Low
-			case port.FallingEdge:
-				d.C <- port.High
-			}
-
-			d.lastPeriodTimestamp = event.Timestamp - d.SignalT
+		if d.cnt < 10 {
+			debug.TraceLog.Printf("     period: %v", period)
 		}
 
 		if d.lastPeriodTimestamp == -1 {
-			updater(event.Type)
+			if dur := (period - d.Sensitivity) / d.SignalT; dur < 1 {
+				debug.TraceLog.Printf("wait for dur > 0 (%v)", dur)
+				return
+			}
+
+			debug.TraceLog.Printf("d.lastPeriodTimestamp == -1, calc lastPeriodTimestamp")
+
+			d.lastPeriodTimestamp = event.Timestamp - d.SignalT
 			return
 		}
 
 		switch interval := intervalMultiplierRounded(event.Timestamp); interval {
 		case 2:
+			if d.cnt < 10 {
+				debug.TraceLog.Printf("     interval: %v (%v)", interval, event.Timestamp-d.lastPeriodTimestamp)
+			}
+			d.cnt++
 			d.lastPeriodTimestamp = event.Timestamp
 		case 1, 3:
-			updater(event.Type)
+			switch event.Type {
+			case port.RisingEdge:
+				if d.cnt < 10 {
+					debug.TraceLog.Printf("LOW  interval: %v (%v)", interval, event.Timestamp-d.lastPeriodTimestamp)
+				}
+				d.cnt++
+				d.C <- port.Low
+			case port.FallingEdge:
+				if d.cnt < 10 {
+					debug.TraceLog.Printf("HIGH interval: %v (%v)", interval, event.Timestamp-d.lastPeriodTimestamp)
+				}
+				d.cnt++
+				d.C <- port.High
+			default:
+				d.lastPeriodTimestamp = -1
+
+				debug.FatalLog.Println("invalid event.Type %v", event.Type)
+				panic("invalid event.Type")
+				return
+			}
+
+			d.lastPeriodTimestamp = event.Timestamp - d.SignalT
 		default:
 			debug.ErrorLog.Println("invalid interval: %v", interval)
 
