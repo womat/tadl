@@ -120,25 +120,24 @@ func (d *Decoder) eventHandler(event port.Event) {
 
 	switch d.state {
 	case synchronizing:
-		if len(d.eventSamples) < cap(d.eventSamples) {
+		if len(d.eventSamples) < eventSamples {
 			d.eventSamples = append(d.eventSamples, period)
 
-			if len(d.eventSamples) == cap(d.eventSamples) {
-				go func() {
-					halfPeriod, fullPeriod := calcBitPeriods(d.eventSamples)
+			if len(d.eventSamples) == eventSamples {
+				halfPeriod, fullPeriod := calcBitPeriods(d.eventSamples)
 
-					d.fullPeriodMin = fullPeriod - fullPeriod*tolerance/100
-					d.fullPeriodMax = fullPeriod + fullPeriod*tolerance/100
-					d.halfPeriodMin = halfPeriod - halfPeriod*tolerance/100
-					d.halfPeriodMax = halfPeriod + halfPeriod*tolerance/100
+				d.fullPeriodMin = fullPeriod - fullPeriod*tolerance/100
+				d.fullPeriodMax = fullPeriod + fullPeriod*tolerance/100
+				d.halfPeriodMin = halfPeriod - halfPeriod*tolerance/100
+				d.halfPeriodMax = halfPeriod + halfPeriod*tolerance/100
 
-					d.state = synchronized
-					d.eventSamples = nil
-					debug.InfoLog.Println("synchronizing clock for manchester decoding finished")
-					debug.InfoLog.Printf("clock: %.1f Hz\n", 1/float64(fullPeriod)*float64(time.Second))
-					debug.InfoLog.Printf("full bit period: %v\n", fullPeriod)
-					debug.InfoLog.Printf("half bit period: %v\n", halfPeriod)
-				}()
+				debug.InfoLog.Println("synchronizing clock for manchester decoding finished")
+				debug.InfoLog.Printf("clock: %.1f Hz\n", 1/fullPeriod.Seconds())
+				debug.InfoLog.Printf("full bit period: %v\n", fullPeriod)
+				debug.InfoLog.Printf("half bit period: %v\n", halfPeriod)
+
+				d.state = synchronized
+				d.eventSamples = nil
 			}
 		}
 
@@ -197,14 +196,14 @@ func calcBitPeriods(samples []time.Duration) (halfBitPeriod, fullBitPeriod time.
 	fullBitPeriodSum := time.Duration(0)
 
 	// since the slice is sorted, the first entry is a half bit period!
-	halfBitPeriod = samples[0] //
+	halfBitPeriod = samples[0]
 	fullBitPeriod = halfBitPeriod * 2
 
 	ixFull := 1
 	ixHalf := 1
 
 	// the calculation of half bit period and full bit period is based on average calculation
-	// of the received half bit Periods and full bit periods
+	// of the received half bit periods and full bit periods
 	for _, t := range samples {
 		// if time duration is greater than 150% of a half bit period, it is full bit period
 		if t > halfBitPeriod+halfBitPeriod/2 {
