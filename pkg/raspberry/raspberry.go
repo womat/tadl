@@ -3,6 +3,7 @@ package raspberry
 
 import (
 	"fmt"
+	"github.com/womat/debug"
 	"time"
 
 	"github.com/warthog618/gpiod"
@@ -18,8 +19,9 @@ type Chip struct {
 
 // Line represents a single requested line.
 type Line struct {
-	gpiodLine *gpiod.Line
-	lastEvent time.Duration
+	gpiodLine  *gpiod.Line
+	lastValue  int
+	debouncing bool
 	// send edge changes to channel
 	C chan port.Event
 }
@@ -43,19 +45,41 @@ func (c *Chip) NewLine(gpio int, terminator string, debounce time.Duration) (*Li
 
 	// handler check the bounce timeout and send the event to channel C
 	handler := func(evt gpiod.LineEvent) {
-		p := evt.Timestamp - line.lastEvent
-		line.lastEvent = evt.Timestamp
-
-		if p < debounce {
+		if line.debouncing {
+			debug.ErrorLog.Println("bounce signal detected")
 			return
 		}
 
-		switch evt.Type {
-		case gpiod.LineEventFallingEdge:
-			line.C <- port.Event{Type: port.FallingEdge, Timestamp: evt.Timestamp}
-		case gpiod.LineEventRisingEdge:
-			line.C <- port.Event{Type: port.RisingEdge, Timestamp: evt.Timestamp}
-		}
+		line.debouncing = true
+
+		go func(t time.Duration) {
+			defer func() { line.debouncing = false }()
+
+			time.Sleep(debounce)
+
+			v, e := line.gpiodLine.Value()
+			if e != nil {
+				debug.ErrorLog.Println(e)
+				return
+			}
+
+			if v == line.lastValue {
+				debug.ErrorLog.Println("no changed value after bounce delay")
+				return
+			}
+
+			switch v {
+			case 0:
+				line.C <- port.Event{Type: port.FallingEdge, Timestamp: t + debounce}
+			case 1:
+				line.C <- port.Event{Type: port.RisingEdge, Timestamp: t + debounce}
+			default:
+				debug.ErrorLog.Printf("invalid pin value: %v", v)
+				return
+			}
+
+			line.lastValue = v
+		}(evt.Timestamp)
 	}
 
 	switch terminator {
