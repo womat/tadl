@@ -145,8 +145,12 @@ func (d *Decoder) eventHandler(event port.Event) {
 	case synchronized:
 		intervalMultiplierRounded := func(timeStamp time.Duration) int {
 			if d.lastPeriodTimestamp == -1 {
-				debug.FatalLog.Println("lastPeriodStartNs is -1")
-				panic("in function intervalMultiplierRounded() the d.lastPeriodStartNs is -1")
+				if dur := (period - d.Sensitivity) / d.SignalT; dur < 1 {
+					debug.TraceLog.Printf("wait for dur > 0 (%v)", dur)
+					return -2
+				}
+
+				return -1
 			}
 
 			duration := timeStamp - d.lastPeriodTimestamp
@@ -158,19 +162,14 @@ func (d *Decoder) eventHandler(event port.Event) {
 			debug.TraceLog.Printf("     period: %v", period)
 		}
 
-		if d.lastPeriodTimestamp == -1 {
-			if dur := (period - d.Sensitivity) / d.SignalT; dur < 1 {
-				debug.TraceLog.Printf("wait for dur > 0 (%v)", dur)
-				return
-			}
-
+		switch interval := intervalMultiplierRounded(event.Timestamp); interval {
+		case -2:
+			return
+		case -1:
 			debug.TraceLog.Printf("d.lastPeriodTimestamp == -1, calc lastPeriodTimestamp")
 
 			d.lastPeriodTimestamp = event.Timestamp - d.SignalT
 			return
-		}
-
-		switch interval := intervalMultiplierRounded(event.Timestamp); interval {
 		case 2:
 			if d.cnt < 10 {
 				debug.TraceLog.Printf("     interval: %v (%v)", interval, event.Timestamp-d.lastPeriodTimestamp)
