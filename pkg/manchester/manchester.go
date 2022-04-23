@@ -1,5 +1,9 @@
 // Package manchester is a software Decoder for manchester code
 // https://en.wikipedia.org/wiki/Manchester_code
+
+// https://www.microchip.com/content/dam/mchp/documents/OTH/ApplicationNotes/ApplicationNotes/Atmel-9164-Manchester-Coding-Basics_Application-Note.pdf
+// https://github.com/jdevelop/go-rf5v-transceiver
+
 package manchester
 
 import (
@@ -11,8 +15,8 @@ import (
 )
 
 const (
-	// tolerance are the time tolerance values to detect bit periods (in percent).
-	tolerance = 20
+	// SensitivityFactor are the time tolerance values to detect bit periods (in percent).
+	SensitivityFactor = 0.6
 	// eventSamples are the count of event samples to calculate the clock.
 	eventSamples = 500
 
@@ -32,18 +36,14 @@ type Decoder struct {
 	// eventSamples holds event samples to calculate bit periods.
 	eventSamples []time.Duration
 
-	// firstHalfBit is true, if the first half of a half bit period has been received.
-	// __-_--__-_-_
-	//   ^ first half bit
-	firstHalfBit bool
 	// lastTimestamp is the time of the last detected event.
-	lastTimestamp time.Duration
+	//	lastTimestamp time.Duration
 
 	// defines the calculated bit periods
-	fullPeriodMin time.Duration
-	fullPeriodMax time.Duration
-	halfPeriodMin time.Duration
-	halfPeriodMax time.Duration
+	SignalT             time.Duration
+	prevBit             bool
+	lastPeriodTimestamp time.Duration
+	Sensitivity         time.Duration
 
 	// C is the channel to send the decoded bit stream
 	C chan port.StateType
@@ -115,26 +115,26 @@ func (d *Decoder) run() {
 //                 or a rising edge while the second half of a half bit period
 //  decoding manchester code:  https://www.elektroniktutor.de/internet/codes.html
 func (d *Decoder) eventHandler(event port.Event) {
-	period := event.Timestamp - d.lastTimestamp
-	d.lastTimestamp = event.Timestamp
-
 	switch d.state {
 	case synchronizing:
 		if len(d.eventSamples) < eventSamples {
+			period := event.Timestamp - d.lastPeriodTimestamp
+			d.lastPeriodTimestamp = event.Timestamp
+
 			d.eventSamples = append(d.eventSamples, period)
 
 			if len(d.eventSamples) == eventSamples {
 				halfPeriod, fullPeriod := calcBitPeriods(d.eventSamples)
 
-				d.fullPeriodMin = fullPeriod - fullPeriod*tolerance/100
-				d.fullPeriodMax = fullPeriod + fullPeriod*tolerance/100
-				d.halfPeriodMin = halfPeriod - halfPeriod*tolerance/100
-				d.halfPeriodMax = halfPeriod + halfPeriod*tolerance/100
+				d.SignalT = halfPeriod
+				d.lastPeriodTimestamp = -1
+				d.Sensitivity = time.Duration(float64(d.SignalT) * SensitivityFactor)
+				d.prevBit = false
 
 				debug.InfoLog.Println("synchronizing clock for manchester decoding finished")
 				debug.InfoLog.Printf("clock: %.1f Hz\n", 1/fullPeriod.Seconds())
-				debug.InfoLog.Printf("full bit period: %v\n", fullPeriod)
-				debug.InfoLog.Printf("half bit period: %v\n", halfPeriod)
+				debug.InfoLog.Printf("SignalT: %v\n", d.SignalT)
+				debug.InfoLog.Printf("Sensitivity: %v\n", d.Sensitivity)
 
 				d.state = synchronized
 				d.eventSamples = nil
@@ -142,44 +142,47 @@ func (d *Decoder) eventHandler(event port.Event) {
 		}
 
 	case synchronized:
-		if period >= d.halfPeriodMin && period <= d.halfPeriodMax {
-			if !d.firstHalfBit {
-				d.firstHalfBit = true
-				return
+		intervalMultiplierRounded := func(timeStamp time.Duration) int {
+			if d.lastPeriodTimestamp == -1 {
+				debug.ErrorLog.Println("lastPeriodStartNs is -1")
+				return 1
 			}
 
-			switch event.Type {
+			duration := timeStamp - d.lastPeriodTimestamp
+
+			ns := d.SignalT.Nanoseconds()
+			dur := int(1 + int64(duration-d.Sensitivity)/ns)
+
+			return dur
+		}
+
+		updater := func(e port.EventType) {
+			switch e {
 			case port.RisingEdge:
 				d.C <- port.Low
 			case port.FallingEdge:
 				d.C <- port.High
 			}
 
-			d.firstHalfBit = false
+			d.lastPeriodTimestamp = event.Timestamp - d.SignalT
+		}
+
+		if d.lastPeriodTimestamp == -1 {
+			updater(event.Type)
 			return
 		}
 
-		if period >= d.fullPeriodMin && period <= d.fullPeriodMax {
-			if d.firstHalfBit {
-				debug.DebugLog.Println("illegal previous half period")
+		switch interval := intervalMultiplierRounded(event.Timestamp); interval {
+		case 2:
+			d.lastPeriodTimestamp = event.Timestamp
+		case 1, 3:
+			updater(event.Type)
+		default:
+			debug.ErrorLog.Println("invalid interval: %v", interval)
 
-				d.firstHalfBit = false
-				d.C <- port.Invalid
-				return
-			}
-
-			switch event.Type {
-			case port.RisingEdge:
-				d.C <- port.Low
-			case port.FallingEdge:
-				d.C <- port.High
-			}
-			return
+			d.C <- port.Invalid
+			d.lastPeriodTimestamp = -1
 		}
-
-		debug.DebugLog.Printf("invalid bit period: %v:", period)
-		d.firstHalfBit = false
-		d.C <- port.Invalid
 	}
 }
 
@@ -226,5 +229,4 @@ func calcBitPeriods(samples []time.Duration) (halfBitPeriod, fullBitPeriod time.
 func (d *Decoder) reset() {
 	d.eventSamples = make([]time.Duration, 0, eventSamples)
 	d.state = synchronizing
-	d.firstHalfBit = false
 }
