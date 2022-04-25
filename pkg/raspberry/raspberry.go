@@ -40,12 +40,12 @@ func (c *Chip) NewLine(gpio int, terminator string, debounce time.Duration) (*Li
 	var err error
 
 	line := &Line{
-		C: make(chan port.Event)}
+		C: make(chan port.Event, 100)}
 
 	// handler check the bounce timeout and send the event to channel C
 	handler := func(evt gpiod.LineEvent) {
-		if evt.Timestamp-line.lastEvent < debounce {
-			debug.ErrorLog.Println("bounce signal detected")
+		if t := evt.Timestamp - line.lastEvent; t < debounce {
+			debug.ErrorLog.Printf("bounce signal detected (%v)", t)
 			return
 		}
 

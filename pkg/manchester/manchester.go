@@ -40,11 +40,11 @@ type Decoder struct {
 
 	// lastTimestamp is the time of the last detected event.
 	lastTimestamp time.Duration
+	lastInterval  int
 
 	// defines the calculated bit periods
-	SignalT             time.Duration
-	lastPeriodTimestamp time.Duration
-	Sensitivity         time.Duration
+	SignalT     time.Duration
+	Sensitivity time.Duration
 
 	// C is the channel to send the decoded bit stream
 	C chan port.StateType
@@ -61,7 +61,7 @@ type Decoder struct {
 // New initials a new Decoder
 func New(c chan port.Event) *Decoder {
 	d := Decoder{
-		C:    make(chan port.StateType),
+		C:    make(chan port.StateType, 100),
 		rx:   c,
 		quit: make(chan bool),
 		done: make(chan bool),
@@ -149,18 +149,22 @@ func (d *Decoder) eventHandler(event port.Event) {
 		if interval > 0 && event.Type == port.FallingEdge {
 			debug.InfoLog.Println("synchronizing with the data clock finished")
 
-			d.lastPeriodTimestamp = event.Timestamp - d.SignalT
+			d.lastTimestamp = event.Timestamp - d.SignalT
+			d.lastInterval = 0
 			d.state = synchronized
 			return
 		}
 
 	case synchronized:
-		duration := event.Timestamp - d.lastPeriodTimestamp
-		interval := (duration-d.Sensitivity)/d.SignalT + 1
+		interval := int((period-d.Sensitivity)/d.SignalT) + 1
 
+		if interval < 3 && d.lastInterval == interval {
+			debug.ErrorLog.Printf("multiple interval %v", interval)
+			interval = -1
+		}
 		switch interval {
 		case 2:
-			d.lastPeriodTimestamp = event.Timestamp
+			// d.lastTimestamp = event.Timestamp
 
 		case 1, 3:
 			switch event.Type {
@@ -170,14 +174,16 @@ func (d *Decoder) eventHandler(event port.Event) {
 				d.C <- port.High
 			}
 
-			d.lastPeriodTimestamp = event.Timestamp - d.SignalT
+			d.lastTimestamp = event.Timestamp - d.SignalT
 
 		default:
-			debug.ErrorLog.Println("invalid interval: %v", interval)
+			debug.ErrorLog.Printf("invalid interval: %v", interval)
 
 			d.C <- port.Invalid
 			d.state = synchronizing
 		}
+
+		d.lastInterval = interval
 	}
 }
 
