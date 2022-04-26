@@ -17,7 +17,7 @@ func (app *App) runWebServer() {
 // HandleData returns the data frame of the controller.
 func (app *App) HandleData() fiber.Handler {
 	return func(ctx *fiber.Ctx) error {
-		debug.InfoLog.Print("web request data")
+		debug.DebugLog.Print("web request data")
 
 		app.DataFrame.Lock()
 		defer app.DataFrame.Unlock()

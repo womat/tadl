@@ -17,14 +17,14 @@ import (
 // but we keep the correct syntax.
 //TODO: increase version number to 1.0.1+2020xxyy
 const (
-	VERSION = "1.2.4+20220423"
+	VERSION = "1.2.4+20220426"
 	MODULE  = "tadl"
 )
 
 // HandleVersion is the get application version web handler.
 func (app *App) HandleVersion() fiber.Handler {
 	return func(ctx *fiber.Ctx) error {
-		debug.InfoLog.Print("web request version")
+		debug.DebugLog.Print("web request version")
 
 		return ctx.JSON(fiber.Map{
 			"version":     VERSION,

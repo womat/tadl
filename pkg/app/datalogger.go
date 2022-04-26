@@ -25,7 +25,7 @@ func (app *App) run() {
 
 			debug.ErrorLog.Println(err)
 		} else {
-			debug.DebugLog.Printf("Frame: %v", f)
+			debug.TraceLog.Printf("Frame: %v", f)
 			app.DataFrame.Lock()
 			app.DataFrame.data = f
 			app.DataFrame.Unlock()

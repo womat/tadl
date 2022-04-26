@@ -82,7 +82,7 @@ func New(c chan port.Event) *Decoder {
 	// start to discover clock frequency.
 	d.eventSamples = make([]time.Duration, 0, eventSamples)
 	d.state = discoverClock
-	debug.InfoLog.Print("discovering clock frequency started")
+	debug.DebugLog.Print("discovering clock frequency started")
 
 	go d.run()
 	return &d
@@ -145,10 +145,10 @@ func (d *Decoder) eventHandler(event port.Event) {
 				d.signalT = halfPeriod
 				d.sensitivity = time.Duration(float64(d.signalT) * sensitivityFactor)
 
-				debug.InfoLog.Println("discovering clock frequency finished")
+				debug.DebugLog.Println("discovering clock frequency finished")
 				debug.InfoLog.Printf("clock: %.1f Hz\n", 1/fullPeriod.Seconds())
-				debug.InfoLog.Printf("SignalT: %v\n", d.signalT)
-				debug.InfoLog.Printf("Sensitivity: %v\n", d.sensitivity)
+				debug.DebugLog.Printf("SignalT: %v\n", d.signalT)
+				debug.DebugLog.Printf("Sensitivity: %v\n", d.sensitivity)
 
 				d.state = synchronizing
 				d.eventSamples = nil
@@ -161,7 +161,7 @@ func (d *Decoder) eventHandler(event port.Event) {
 		interval := int((period-d.sensitivity)/d.signalT) + 1
 
 		if interval == 2 && event.Type == port.FallingEdge {
-			debug.InfoLog.Println("synchronizing with the data clock finished")
+			debug.DebugLog.Println("synchronizing with the data clock finished")
 
 			d.lastTimestamp = event.Timestamp - d.signalT
 			d.lastInterval = 0
@@ -180,7 +180,7 @@ func (d *Decoder) eventHandler(event port.Event) {
 		if (interval == 1 && (d.lastInterval == 1 || d.lastInterval == 3)) ||
 			(interval == 2 && d.lastInterval == 2) ||
 			(interval == 3 && d.lastInterval == 2) {
-			debug.ErrorLog.Printf(
+			debug.WarningLog.Printf(
 				"invalid interval combination: current state: %v, last state: %v (period: %v)",
 				interval, d.lastInterval, period)
 
@@ -207,7 +207,7 @@ func (d *Decoder) eventHandler(event port.Event) {
 			d.lastTimestamp = event.Timestamp - d.signalT
 
 		default:
-			debug.ErrorLog.Printf("invalid interval: %v (period: %v)", interval, period)
+			debug.WarningLog.Printf("invalid interval: %v (period: %v)", interval, period)
 
 			d.C <- port.Invalid
 			d.state = synchronizing
