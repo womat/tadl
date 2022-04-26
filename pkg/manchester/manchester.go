@@ -1,6 +1,9 @@
-// Package manchester is a software Decoder for manchester code
+// Package manchester is a software decoder for manchester code
+// the decoder determines the clock speed automatically
+// it's only the decoder, not sender!
+//
+// inspired by:
 // https://en.wikipedia.org/wiki/Manchester_code
-
 // https://www.microchip.com/content/dam/mchp/documents/OTH/ApplicationNotes/ApplicationNotes/Atmel-9164-Manchester-Coding-Basics_Application-Note.pdf
 // https://github.com/jdevelop/go-rf5v-transceiver
 
@@ -15,50 +18,59 @@ import (
 )
 
 const (
-	// SensitivityFactor are the time tolerance values to detect bit periods (in percent).
-	SensitivityFactor = 0.6
+	// SensitivityFactor is the factor to calc the mid-bit time intervals (SignalT * SensitivityFactor).
+	sensitivityFactor = 0.6
+
 	// eventSamples are the count of event samples to calculate the clock.
 	eventSamples = 500
 
-	//discoverClock is the process the clock frequency
-	discoverClock stateType = iota
-	//synchronizing is the process to synchronize to the clock (distinguish a bit edge from a mid-bit transition)
+	// discoverClock is the process state the clock frequency.
+	discoverClock int = iota
+	// synchronizing is the process state to synchronize to the clock
+	// (distinguish a bit edge from a mid-bit transition).
 	synchronizing
 	// synchronized is the process state to decode edge events.
 	synchronized
 )
 
-// stateType represents the state of the decoding process.
-type stateType int
-
 // Decoder represents the handler of the Decoder.
 type Decoder struct {
-	// state contains the current decoding state (discoverClock/discoverClock/synchronized).
-	state stateType
-	// eventSamples holds event samples to calculate bit periods.
+	// state contains the current decoding state (discoverClock/synchronizing/synchronized).
+	state int
+
+	// eventSamples holds event samples to calculate bit periods (clock).
 	eventSamples []time.Duration
 
 	// lastTimestamp is the time of the last detected event.
 	lastTimestamp time.Duration
-	lastInterval  int
 
-	// defines the calculated bit periods
-	SignalT     time.Duration
-	Sensitivity time.Duration
+	// lastInterval is the time state of the last detected event.
+	// 1 >> 1 SignalT time (1/2 data rate from starting), signal is valid, level depends on falling/rising edge
+	// 2 >> 1/2 data rate, start restart SignalT timer
+	// 3 >> 3 SignalT time (1.5 data rate from starting), signal is valid, level depends on falling/rising edge
+	// all others: invalid >> restart synchronizing
+	lastInterval int
 
-	// C is the channel to send the decoded bit stream
+	// signalT defines the mid-bit time (T) >>  half of the clock period.
+	// e.g. clock rate 50Hz (25bit/s) >> clock period 20ms >> signalT >> 10ms.
+	signalT time.Duration
+
+	// sensitivity is a helper variable to calc the mid-bit time intervals (SignalT * SensitivityFactor).
+	sensitivity time.Duration
+
+	// C is the channel to send the decoded bit stream.
 	C chan port.StateType
 
-	// rx is the channel to receive the line events
+	// rx is the channel to receive the line events.
 	rx chan port.Event
 
-	// quit is the channel to stop the Decoder
+	// quit is the channel to stop the Decoder.
 	quit chan bool
-	// done signals that handler is stopped
+	// done signals that handler is stopped.
 	done chan bool
 }
 
-// New initials a new Decoder
+// New initials a new Decoder.
 func New(c chan port.Event) *Decoder {
 	d := Decoder{
 		C:    make(chan port.StateType, 100),
@@ -67,7 +79,7 @@ func New(c chan port.Event) *Decoder {
 		done: make(chan bool),
 	}
 
-	// start synchronizing manchester bit periods
+	// start to discover clock frequency.
 	d.eventSamples = make([]time.Duration, 0, eventSamples)
 	d.state = discoverClock
 	debug.InfoLog.Print("discovering clock frequency started")
@@ -76,7 +88,7 @@ func New(c chan port.Event) *Decoder {
 	return &d
 }
 
-// Close stops decoding
+// Close stops Decoder.
 func (d *Decoder) Close() error {
 	d.quit <- true
 
@@ -89,7 +101,7 @@ func (d *Decoder) Close() error {
 	return nil
 }
 
-// run revives events and send it to eventHandler to decode
+// run receives events and send it to eventHandler to decode.
 func (d *Decoder) run() {
 	for {
 		select {
@@ -107,7 +119,7 @@ func (d *Decoder) run() {
 	}
 }
 
-// EventHandler decodes line events (edges) to a bit stream and includes:
+// eventHandler decodes line events (edges) to a bit stream.
 //  * discoverClock:
 //           the clock frequency is discovered by analyzing the bit periods (measuring full bit periods)
 //  * synchronizing:
@@ -130,13 +142,13 @@ func (d *Decoder) eventHandler(event port.Event) {
 			if len(d.eventSamples) == eventSamples {
 				halfPeriod, fullPeriod := calcBitPeriods(d.eventSamples)
 
-				d.SignalT = halfPeriod
-				d.Sensitivity = time.Duration(float64(d.SignalT) * SensitivityFactor)
+				d.signalT = halfPeriod
+				d.sensitivity = time.Duration(float64(d.signalT) * sensitivityFactor)
 
 				debug.InfoLog.Println("discovering clock frequency finished")
 				debug.InfoLog.Printf("clock: %.1f Hz\n", 1/fullPeriod.Seconds())
-				debug.InfoLog.Printf("SignalT: %v\n", d.SignalT)
-				debug.InfoLog.Printf("Sensitivity: %v\n", d.Sensitivity)
+				debug.InfoLog.Printf("SignalT: %v\n", d.signalT)
+				debug.InfoLog.Printf("Sensitivity: %v\n", d.sensitivity)
 
 				d.state = synchronizing
 				d.eventSamples = nil
@@ -144,27 +156,44 @@ func (d *Decoder) eventHandler(event port.Event) {
 		}
 
 	case synchronizing:
-		interval := (period - d.Sensitivity) / d.SignalT
+		// synchronize to the clock (distinguish a bit edge from a mid-bit transition)
+		// capture next falling edge and check if period value equal 2 SignalT (T = 1⁄2 data rate)
+		interval := int((period-d.sensitivity)/d.signalT) + 1
 
-		if interval > 0 && event.Type == port.FallingEdge {
+		if interval == 2 && event.Type == port.FallingEdge {
 			debug.InfoLog.Println("synchronizing with the data clock finished")
 
-			d.lastTimestamp = event.Timestamp - d.SignalT
+			d.lastTimestamp = event.Timestamp - d.signalT
 			d.lastInterval = 0
 			d.state = synchronized
 			return
 		}
 
 	case synchronized:
-		interval := int((period-d.Sensitivity)/d.SignalT) + 1
+		// interval values:
+		// 1 >> 1 SignalT time (1/2 data rate from starting), signal is valid, level depends on falling/rising edge
+		// 2 >> 1/2 data rate, start restart SignalT timer
+		// 3 >> 3 SignalT time (1.5 data rate from starting), signal is valid, level depends on falling/rising edge
+		// all others: invalid >> restart synchronizing
+		interval := int((period-d.sensitivity)/d.signalT) + 1
 
-		if interval < 3 && d.lastInterval == interval {
-			debug.ErrorLog.Printf("multiple interval %v", interval)
-			interval = -1
+		if (interval == 1 && (d.lastInterval == 1 || d.lastInterval == 3)) ||
+			(interval == 2 && d.lastInterval == 2) ||
+			(interval == 3 && d.lastInterval == 2) {
+			debug.ErrorLog.Printf(
+				"invalid interval combination: current state: %v, last state: %v (period: %v)",
+				interval, d.lastInterval, period)
+
+			d.C <- port.Invalid
+			d.state = synchronizing
+			return
 		}
+
 		switch interval {
 		case 2:
+			// d.lastTimestamp is already set at the beginning of the procedure
 			// d.lastTimestamp = event.Timestamp
+			d.lastInterval = interval
 
 		case 1, 3:
 			switch event.Type {
@@ -174,20 +203,19 @@ func (d *Decoder) eventHandler(event port.Event) {
 				d.C <- port.High
 			}
 
-			d.lastTimestamp = event.Timestamp - d.SignalT
+			d.lastInterval = interval
+			d.lastTimestamp = event.Timestamp - d.signalT
 
 		default:
-			debug.ErrorLog.Printf("invalid interval: %v", interval)
+			debug.ErrorLog.Printf("invalid interval: %v (period: %v)", interval, period)
 
 			d.C <- port.Invalid
 			d.state = synchronizing
 		}
-
-		d.lastInterval = interval
 	}
 }
 
-// calcBitPeriods calculates the manchester bit periods from the event samples
+// calcBitPeriods calculates the manchester bit periods (clock) from the event samples
 func calcBitPeriods(samples []time.Duration) (halfBitPeriod, fullBitPeriod time.Duration) {
 	// the first entry in the slice must be a half bit period
 	// so, sorting the samples helps to identify a half bit period

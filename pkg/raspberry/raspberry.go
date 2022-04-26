@@ -20,7 +20,6 @@ type Chip struct {
 // Line represents a single requested line.
 type Line struct {
 	gpiodLine *gpiod.Line
-	lastEvent time.Duration
 	// send edge changes to channel
 	C chan port.Event
 }
@@ -38,18 +37,32 @@ func Open() (*Chip, error) {
 //   There can only be one watcher on the pin at a time.
 func (c *Chip) NewLine(gpio int, terminator string, debounce time.Duration) (*Line, error) {
 	var err error
+	var collision bool
+	var cnt int
+	var lastEvent time.Duration
 
 	line := &Line{
 		C: make(chan port.Event, 100)}
 
 	// handler check the bounce timeout and send the event to channel C
 	handler := func(evt gpiod.LineEvent) {
-		if t := evt.Timestamp - line.lastEvent; t < debounce {
-			debug.ErrorLog.Printf("bounce signal detected (%v)", t)
-			return
+		defer func() { collision = false }()
+
+		if collision {
+			debug.ErrorLog.Printf("handler collision detected")
 		}
 
-		line.lastEvent = evt.Timestamp
+		collision = true
+
+		if t := evt.Timestamp - lastEvent; t < debounce {
+			cnt++
+			debug.ErrorLog.Printf("time: %v bounce signal #%v (%v) detected (%v) - and ignored ;-)", evt.Timestamp, cnt, evt.Seqno, t)
+			//	return
+		} else {
+			cnt = 0
+		}
+
+		lastEvent = evt.Timestamp
 
 		switch evt.Type {
 		case gpiod.LineEventFallingEdge:
