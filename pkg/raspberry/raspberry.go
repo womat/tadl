@@ -20,6 +20,13 @@ type Chip struct {
 // Line represents a single requested line.
 type Line struct {
 	gpiodLine *gpiod.Line
+
+	// quit terminates the debounce function
+	quit chan struct{}
+
+	// done confirms the termination of the debounce function
+	done chan struct{}
+
 	// send edge changes to channel
 	C chan port.Event
 }
@@ -37,40 +44,48 @@ func Open() (*Chip, error) {
 //   There can only be one watcher on the pin at a time.
 func (c *Chip) NewLine(gpio int, terminator string, debounce time.Duration) (*Line, error) {
 	var err error
-	var collision bool
-	var cnt int
-	var lastEvent time.Duration
 
+	eventChan := make(chan gpiod.LineEvent, 100)
 	line := &Line{
-		C: make(chan port.Event, 100)}
+		C:    make(chan port.Event, 100),
+		quit: make(chan struct{}),
+		done: make(chan struct{}),
+	}
 
 	// handler check the bounce timeout and send the event to channel C
 	handler := func(evt gpiod.LineEvent) {
-		defer func() { collision = false }()
-
-		if collision {
-			debug.ErrorLog.Printf("handler collision detected")
-		}
-
-		collision = true
-
-		if t := evt.Timestamp - lastEvent; t < debounce {
-			cnt++
-			debug.ErrorLog.Printf("time: %v bounce signal #%v (%v) detected (%v) - and ignored ;-)", evt.Timestamp, cnt, evt.Seqno, t)
-			//	return
-		} else {
-			cnt = 0
-		}
-
-		lastEvent = evt.Timestamp
-
-		switch evt.Type {
-		case gpiod.LineEventFallingEdge:
-			line.C <- port.Event{Type: port.FallingEdge, Timestamp: evt.Timestamp}
-		case gpiod.LineEventRisingEdge:
-			line.C <- port.Event{Type: port.RisingEdge, Timestamp: evt.Timestamp}
-		}
+		eventChan <- evt
 	}
+
+	// debouncing
+	go func(interval time.Duration, input chan gpiod.LineEvent) {
+		// If an event is received, wait the specified interval before calling the handler.
+		// If another event is received before the interval has passed, store it and reset the timer.
+
+		var item gpiod.LineEvent
+		timer := time.NewTimer(time.Hour)
+
+		for {
+			select {
+			case <-line.quit:
+				line.done <- struct{}{}
+				return
+			case item = <-input:
+				timer.Reset(interval)
+			case <-timer.C:
+				// this function is only called once - with the last event
+
+				switch item.Type {
+				case gpiod.LineEventFallingEdge:
+					line.C <- port.Event{Type: port.FallingEdge, Timestamp: item.Timestamp}
+				case gpiod.LineEventRisingEdge:
+					line.C <- port.Event{Type: port.RisingEdge, Timestamp: item.Timestamp}
+				default:
+					debug.ErrorLog.Printf("invalid event type: %v", item.Type)
+				}
+			}
+		}
+	}(debounce, eventChan)
 
 	switch terminator {
 	case "pullup":
@@ -103,9 +118,14 @@ func (c *Chip) Close() error {
 // As a consequence the Close must not be called from the context of the event
 // handler - the Close should be called from a different goroutine.
 func (l *Line) Close() error {
-	if err := l.gpiodLine.Close(); err != nil {
-		return err
-	}
+	err := l.gpiodLine.Close()
+
+	l.quit <- struct{}{}
+	<-l.done
+
 	close(l.C)
-	return nil
+	close(l.quit)
+	close(l.done)
+
+	return err
 }
