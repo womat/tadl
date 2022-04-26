@@ -24,6 +24,9 @@ type Line struct {
 	debouncing bool
 	// send edge changes to channel
 	C chan port.Event
+
+	// channel to terminate debounce function
+	quit chan struct{}
 }
 
 // Open opens a GPIO character device and initialize the global lines slice
@@ -37,50 +40,50 @@ func Open() (*Chip, error) {
 //   If granted, control is maintained until the Line is closed.
 //   Watch the line for edge changes and send the changes after bounce timeout to chanel C.
 //   There can only be one watcher on the pin at a time.
-func (c *Chip) NewLine(gpio int, terminator string, debounce time.Duration) (*Line, error) {
+func (c *Chip) NewLine(gpio int, terminator string, debounceTime time.Duration) (*Line, error) {
 	var err error
-
-	line := &Line{
-		C: make(chan port.Event)}
+	eventChan := make(chan gpiod.LineEvent, 100)
+	line := &Line{C: make(chan port.Event)}
 
 	// handler check the bounce timeout and send the event to channel C
 	handler := func(evt gpiod.LineEvent) {
-		if line.debouncing {
-			debug.ErrorLog.Println("bounce signal detected")
-			return
-		}
-
-		line.debouncing = true
-
-		go func(t time.Duration) {
-			defer func() { line.debouncing = false }()
-
-			time.Sleep(debounce)
-
-			v, e := line.gpiodLine.Value()
-			if e != nil {
-				debug.ErrorLog.Println(e)
-				return
-			}
-
-			if v == line.lastValue {
-				debug.ErrorLog.Println("no changed value after bounce delay")
-				return
-			}
-
-			switch v {
-			case 0:
-				line.C <- port.Event{Type: port.FallingEdge, Timestamp: t + debounce}
-			case 1:
-				line.C <- port.Event{Type: port.RisingEdge, Timestamp: t + debounce}
-			default:
-				debug.ErrorLog.Printf("invalid pin value: %v", v)
-				return
-			}
-
-			line.lastValue = v
-		}(evt.Timestamp)
+		eventChan <- evt
 	}
+
+	// debouncing
+	go func(interval time.Duration, input chan gpiod.LineEvent) {
+		// If an event is received, wait the specified interval before calling the handler.
+		// If another event is received before the interval has passed, store it and reset the timer.
+
+		var item gpiod.LineEvent
+		var lastEvent gpiod.LineEventType = -1
+
+		timer := time.NewTimer(interval)
+
+		for {
+			select {
+			case <-line.quit:
+				return
+			case item = <-input:
+				timer.Reset(interval)
+			case <-timer.C:
+				// this function is only called once - with the last event
+				if item.Type == lastEvent {
+					break
+				}
+
+				lastEvent = item.Type
+				switch item.Type {
+				case gpiod.LineEventFallingEdge:
+					line.C <- port.Event{Type: port.FallingEdge, Timestamp: item.Timestamp}
+				case gpiod.LineEventRisingEdge:
+					line.C <- port.Event{Type: port.RisingEdge, Timestamp: item.Timestamp}
+				default:
+					debug.ErrorLog.Printf("invalid pin value: %v", item.Type)
+				}
+			}
+		}
+	}(debounceTime, eventChan)
 
 	switch terminator {
 	case "pullup":
@@ -116,6 +119,7 @@ func (l *Line) Close() error {
 	if err := l.gpiodLine.Close(); err != nil {
 		return err
 	}
+	l.quit <- struct{}{}
 	close(l.C)
 	return nil
 }
