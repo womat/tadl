@@ -104,7 +104,7 @@ func (r *ReadCloser) run() {
 
 			switch b {
 			case port.Invalid:
-				debug.ErrorLog.Println("invalid data stream, wait for dlbus sync")
+				debug.DebugLog.Println("invalid data stream, wait for dlbus sync")
 				r.reset()
 			case port.High, port.Low:
 				r.decoder(b)
@@ -192,7 +192,7 @@ func (r *ReadCloser) low() {
 		r.rxBit = 1
 	case 9:
 		// no stop bit received, wait for sync
-		debug.ErrorLog.Print("missing stop bit, wait for dlbus sync")
+		debug.WarningLog.Print("missing stop bit, wait for dlbus sync")
 		r.reset()
 	default:
 		r.rxBit++
