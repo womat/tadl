@@ -8,16 +8,17 @@ import (
 )
 
 // VERSION holds the version information with the following logic in mind
-//  1 ... fixed
-//  0 ... year 2020, 1->year 2021, etc.
-//  7 ... month of year (7=July)
-//  the date format after the + is always the first of the month
+//
+//	1 ... fixed
+//	0 ... year 2020, 1->year 2021, etc.
+//	7 ... month of year (7=July)
+//	the date format after the + is always the first of the month
 //
 // VERSION differs from semantic versioning as described in https://semver.org/
 // but we keep the correct syntax.
-//TODO: increase version number to 1.0.1+2020xxyy
+// TODO: increase version number to 1.0.1+2020xxyy
 const (
-	VERSION = "1.2.4+20220428"
+	VERSION = "1.3.4+20230409"
 	MODULE  = "tadl"
 )
 

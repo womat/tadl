@@ -79,7 +79,7 @@ func (app *App) sendMQTT(topic string, msg interface{}) {
 
 	go app.mqtt.Publish(mqtt.Message{
 		Qos:      0,
-		Retained: true,
+		Retained: app.config.MQTT.Retained,
 		Topic:    topic,
 		Payload:  b,
 	})

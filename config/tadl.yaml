@@ -28,6 +28,8 @@ log:
 mqtt:
   # connection >> defines the connection string to the mqtt broker
   connection: "tcp://raspberrypi4.fritz.box:1883"
+  # retained defines the message retained flag
+  retained: false
   # topic is the mqtt topic where the measurement sent
   topic: test/uvr42/summary
   # interval defines the interval in seconds, in which the measurements are sent to mqqt

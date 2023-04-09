@@ -40,6 +40,7 @@ type WebserverConfig struct {
 // MQTTConfig defines the struct of the mqtt client configuration.
 type MQTTConfig struct {
 	Connection  string        `yaml:"connection"`
+	Retained    bool          `yaml:"retained"`
 	Interval    time.Duration `yaml:"-"`
 	IntervalInt int           `yaml:"interval"`
 	DeltaKelvin float64       `yaml:"deltakelvin"`
