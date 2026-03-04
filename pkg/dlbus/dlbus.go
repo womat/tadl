@@ -1,200 +1,149 @@
-// Package dlbus is the decoder of th dlbus protocol from Technische Alternative
+// Package dlbus implements the DL-Bus protocol decoder from Technische Alternative.
+// The DL-Bus is a single-wire serial protocol used to read data from heating controllers.
+//
+// Protocol description:
+//   - Sync sequence: 16 consecutive high bits
+//   - Each byte: 1 start bit (low) + 8 data bits (LSB first) + 1 stop bit (high)
+//   - Frame ends with a new sync sequence
 package dlbus
 
 import (
+	"context"
+	"fmt"
 	"io"
-	"sync"
-	"tadl/pkg/port"
+	"sync/atomic"
 
-	"github.com/womat/debug"
+	"github.com/womat/golib/manchester/decoder"
 )
 
-const (
-	//synchronizing is the process state to synchronize the dlbus.
-	synchronizing stateType = iota
-	// synchronized is the process state to receive bitstream.
-	synchronized
-)
-
-// stateType represents the state of the decoding process.
-type stateType int
-
-// ReadCloser contains the handler to read data from the dl bus.
+// ReadCloser contains the handler to read data from the DL-Bus.
 type ReadCloser struct {
-	// syncCounter is the count of consecutive high bits.
-	syncCounter int
-	// state contains the current decoding state (synchronizing/synchronized).
-	state stateType
-	// rx channel receives data stream from manchester code.
-	rx chan port.StateType
-	// rxBit is the number of the currently received bit of the rxRegister.
-	rxBit int
-	// rxRegister is the buffer of the currently received byte.
-	rxRegister byte
-	// rxBuffer is the received data record between two syncs.
-	rxBuffer []byte
-	// rl lock the rxBuffer until data are received.
-	rl sync.Mutex
-	// quit stops the handler
-	quit chan bool
-	// done signals that handler is stopped
-	done chan bool
+	// rx receives the decoded bit stream from the manchester decoder.
+	rx chan decoder.Bit
+	// frames transports complete DL-Bus frames from run() to Read().
+	// The channel has a capacity of 1 to allow run() to continue while Read() is processing.
+	frames chan []byte
+	// done signals that run() has terminated.
+	done chan struct{}
+
+	// droppedFrames counts frames discarded because the reader was not keeping up.
+	droppedFrames atomic.Uint64
+	// protocolErrors counts frames discarded due to missing stop bits.
+	protocolErrors atomic.Uint64
 }
 
-// NewReader initials a new dlbus handler
-func NewReader(c chan port.StateType) *ReadCloser {
-	h := ReadCloser{
-		state:    synchronizing,
-		rxBuffer: []byte{},
-		rl:       sync.Mutex{},
-		rx:       c,
-		done:     make(chan bool),
-		quit:     make(chan bool),
+// NewReader creates a new DL-Bus handler and starts the decoding goroutine.
+// The context controls the lifetime of the decoder - cancel it to stop decoding.
+func NewReader(ctx context.Context, rx chan decoder.Bit) *ReadCloser {
+	h := &ReadCloser{
+		rx:     rx,
+		frames: make(chan []byte, 1),
+		done:   make(chan struct{}),
 	}
 
-	go h.run()
+	go h.run(ctx)
 
-	return &h
+	return h
 }
 
-// Read the current dlbus frame (data before last sync).
+// Read returns the next complete DL-Bus frame.
+// Blocks until a frame is available or the decoder is stopped.
+// Returns io.EOF when the decoder has been stopped via context cancellation.
 func (r *ReadCloser) Read(b []byte) (int, error) {
-	r.rl.Lock()
-	defer r.rl.Unlock()
-
-	if len(r.rxBuffer) == 0 {
+	frame, ok := <-r.frames
+	if !ok {
+		// frames channel was closed by run() - decoder has stopped
 		return 0, io.EOF
 	}
-	n := copy(b, r.rxBuffer)
-	r.rxBuffer = r.rxBuffer[0:0]
-
+	n := copy(b, frame)
 	return n, nil
 }
 
-// Close stops listening dl bus >> stop watching raspberry pin and stops m.service() because of close(m.rx) channel.
+// Close waits for the decoding goroutine to terminate.
+// The actual shutdown is triggered by cancelling the context passed to NewReader.
 func (r *ReadCloser) Close() error {
-	r.rxBuffer = []byte{}
-
-	if r.state == synchronized {
-		r.rl.Unlock()
-	}
-
-	r.quit <- true
-
-	// wait until run() is terminated
 	<-r.done
-	close(r.quit)
-	close(r.done)
-
 	return nil
 }
 
-// run receives incoming bits on channel rx. Handle the sync sequence and receive byte for byte to rxBuffer.
-func (r *ReadCloser) run() {
+func (r *ReadCloser) Info() string {
+	return fmt.Sprintf(
+		"DL-Bus dropped frames: %v, protocol errors: %v",
+		r.droppedFrames.Load(),
+		r.protocolErrors.Load(),
+	)
+}
+
+// run receives incoming bits on rx, assembles bytes into frameBuffer
+// and sends complete frames to the frames channel on sync detection.
+// Stops when ctx is cancelled or the rx channel is closed.
+func (r *ReadCloser) run(ctx context.Context) {
+	defer func() {
+		// closing frames unblocks any pending Read() call with io.EOF
+		close(r.frames)
+		close(r.done)
+	}()
+
+	var byteRegister byte
+	var bitIndex int
+	frameBuffer := make([]byte, 0, 16)
+
 	for {
 		select {
-		case <-r.quit:
-			r.done <- true
+		case <-ctx.Done():
 			return
-		case b, open := <-r.rx:
+		case bit, open := <-r.rx:
 			if !open {
-				r.quit <- true
-				continue
-			}
-
-			switch b {
-			case port.Invalid:
-				debug.DebugLog.Println("invalid data stream, wait for dlbus sync")
-				r.reset()
-			case port.High, port.Low:
-				r.decoder(b)
-			}
-		}
-	}
-}
-
-// reset restart synchronizing dl bus
-func (r *ReadCloser) reset() {
-	r.rxBuffer = r.rxBuffer[0:0]
-	r.syncCounter = 0
-
-	if r.state == synchronized {
-		r.rl.Unlock()
-		r.state = synchronizing
-	}
-}
-
-// decoder decodes the dlbus dataframe
-//  the dataframe starts and ends with 16 high bits (sync).
-//  each data byte consists of one start bit (low), eight dat bits (LSB first) and one stop bit (high)
-func (r *ReadCloser) decoder(bit port.StateType) {
-	switch r.state {
-	case synchronizing:
-		switch bit {
-		case port.High:
-			r.syncCounter++
-		case port.Low:
-			if r.syncCounter < 16 {
-				r.syncCounter = 0
 				return
 			}
 
-			// it looks like a start bit after sync
-			r.rl.Lock()
-			r.state = synchronized
-			r.rxBit = 0
-			r.rxBuffer = r.rxBuffer[0:0]
-			r.low()
+			switch {
+			case bit == decoder.Invalid:
+				// invalid bit received - reset current byte, wait for next sync
+				byteRegister = 0
+				bitIndex = 0
+
+			case bitIndex == 0 && bit == decoder.High:
+				// sync bit received - send completed frame to reader if not empty
+				if len(frameBuffer) > 0 {
+					select {
+					case r.frames <- frameBuffer:
+						// frameBuffer is sent as a slice header (pointer, length, capacity).
+						// The underlying array is now owned by the receiver (Read()).
+						// We must allocate a new backing array here to avoid data races
+						// where run() overwrites the frame while the reader is still reading it.
+						frameBuffer = make([]byte, 0, 16)
+					default:
+						// No receiver ready - frame is discarded.
+						// Safe to reuse the backing array since no one else has a reference to it.
+						r.droppedFrames.Add(1)
+						frameBuffer = frameBuffer[:0]
+					}
+				}
+
+			case bitIndex == 0 && bit == decoder.Low:
+				// start bit received - begin receiving a new byte
+				byteRegister = 0
+				bitIndex++
+
+			case bitIndex == 9 && bit == decoder.High:
+				// stop bit received - byte is complete, append to frame
+				frameBuffer = append(frameBuffer, byteRegister)
+				byteRegister = 0
+				bitIndex = 0
+
+			case bitIndex == 9 && bit == decoder.Low:
+				// missing stop bit - protocol error, discard current frame
+				r.protocolErrors.Add(1)
+				frameBuffer = frameBuffer[:0]
+				byteRegister = 0
+				bitIndex = 0
+
+			default:
+				// data bit received - set bit in register (LSB first)
+				byteRegister |= byte(bit) << (bitIndex - 1)
+				bitIndex++
+			}
 		}
-
-	case synchronized:
-		switch bit {
-		case port.High:
-			r.high()
-		case port.Low:
-			r.low()
-		}
-	}
-}
-
-// high handles high data bits, stop bits and recognizes a starting sync sequence.
-// data bits fills the rxRegister.
-// The stop bit competes the rxRegister and add it to the rxBuffer.
-// If a sync sequence starts, the rxBuffer is competed.
-func (r *ReadCloser) high() {
-	switch r.rxBit {
-	case 0:
-		// if the first bit is high (no start bit), the dataframe is complete and a new sync sequence starts
-		// release (unlock) the rxBuffer for reader.
-		debug.TraceLog.Printf("rxBuffer: %v", r.rxBuffer)
-		r.state = synchronizing
-		r.syncCounter = 1
-		r.rl.Unlock()
-	case 9:
-		// stop bit received
-		r.rxBuffer = append(r.rxBuffer, r.rxRegister)
-		r.rxBit = 0
-	default:
-		// data bit received and set bit in register
-		r.rxRegister |= 1 << (r.rxBit - 1)
-		r.rxBit++
-	}
-}
-
-// low handles start bits and low data bits.
-// data bits fills the rxRegister.
-// the start bit clears the rxRegister
-func (r *ReadCloser) low() {
-	switch r.rxBit {
-	case 0:
-		// start bit received
-		r.rxRegister = 0
-		r.rxBit = 1
-	case 9:
-		// no stop bit received, wait for sync
-		debug.WarningLog.Print("missing stop bit, wait for dlbus sync")
-		r.reset()
-	default:
-		r.rxBit++
 	}
 }

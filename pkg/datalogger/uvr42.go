@@ -2,80 +2,71 @@ package datalogger
 
 import (
 	"encoding/binary"
-	"github.com/womat/debug"
 	"io"
 	"time"
+
+	"github.com/womat/golib/keyvalue"
 )
 
-// UVR42Handler is the handler to read an uvr42 dataframe.
+// UVR42Handler is the handler to read a UVR42 dataframe.
 type UVR42Handler struct {
 	io.ReadCloser
 }
 
-// UVR42Frame is the dataframe of an uvr42 controller.
-type UVR42Frame struct {
-	TimeStamp     time.Time
-	Temperature1  float64
-	Temperature2  float64
-	Temperature3  float64
-	Temperature4  float64
-	Out1          bool
-	Out2          bool
-	RotationSpeed int
+// NewUVR42 creates a new UVR42Handler with the given io.ReadCloser.
+func NewUVR42(readCloser io.ReadCloser) *UVR42Handler {
+	return &UVR42Handler{ReadCloser: readCloser}
 }
 
-// NewUVR42 generate a new handler struct for UVR42.
-func NewUVR42() *UVR42Handler {
-	return &UVR42Handler{}
-}
+// Get reads a UVR42 frame from the DL-Bus, parses it and validates the temperature values.
+func (h *UVR42Handler) Get() (keyvalue.Record, error) {
+	const (
+		out1      byte = 1 << 5 // bitmask for Out1 (bit 5)
+		out2      byte = 1 << 6 // bitmask for Out2 (bit 6)
+		frameSize      = 10
+	)
 
-// Connect defines the io.ReadWriterCloser
-func (h *UVR42Handler) Connect(readCloser io.ReadCloser) error {
-	h.ReadCloser = readCloser
-	return nil
-}
+	r := keyvalue.NewRecord()
 
-// Get reads the DL buffer, convert the buffer to an uvr42 structure and check the values.
-// The temperature values are valid, if the current values are within a temperature range (tMax, tMin) and
-// the difference to the last measured values are less than maxDelta.
-func (h *UVR42Handler) Get() (interface{}, error) {
-	var f UVR42Frame
-	// bitmask of Out1 and Out2
-	const out1 = 1 << 5
-	const out2 = 1 << 6
-
-	b := make([]byte, 64)
-
-	n, err := h.Read(b)
-
-	if err != nil {
-		return f, err
+	if h.ReadCloser == nil {
+		return r, ErrNotConnected
 	}
 
-	if n != 10 {
-		return f, ErrInvalidSize
+	b := make([]byte, frameSize)
+
+	n, err := h.Read(b)
+	if err != nil {
+		return r, err
+	}
+
+	if n != frameSize {
+		return r, ErrInvalidSize
 	}
 
 	if b[0] != uvr42 {
-		return f, ErrUnsupportedDevice
+		return r, ErrUnsupportedDevice
 	}
 
-	f.TimeStamp = time.Now()
-	f.Temperature1 = float64(int16(binary.LittleEndian.Uint16(b[1:3]))) / 10
-	f.Temperature2 = float64(int16(binary.LittleEndian.Uint16(b[3:5]))) / 10
-	f.Temperature3 = float64(int16(binary.LittleEndian.Uint16(b[5:7]))) / 10
-	f.Temperature4 = float64(int16(binary.LittleEndian.Uint16(b[7:9]))) / 10
+	temperature1 := float64(int16(binary.LittleEndian.Uint16(b[1:3]))) / 10
+	temperature2 := float64(int16(binary.LittleEndian.Uint16(b[3:5]))) / 10
+	temperature3 := float64(int16(binary.LittleEndian.Uint16(b[5:7]))) / 10
+	temperature4 := float64(int16(binary.LittleEndian.Uint16(b[7:9]))) / 10
 
-	f.Out1 = b[9]&out1 > 0
-	f.Out2 = b[9]&out2 > 0
-
-	if f.Temperature1 > tMax || f.Temperature2 > tMax || f.Temperature3 > tMax || f.Temperature4 > tMax ||
-		f.Temperature1 < tMin || f.Temperature2 < tMin || f.Temperature3 < tMin || f.Temperature4 < tMin {
-		debug.ErrorLog.Printf("%+v", f)
-		return f, ErrInvalidTemperature
+	if temperature1 > tMax || temperature1 < tMin ||
+		temperature2 > tMax || temperature2 < tMin ||
+		temperature3 > tMax || temperature3 < tMin ||
+		temperature4 > tMax || temperature4 < tMin {
+		return r, ErrInvalidTemperature
 	}
 
-	return f, nil
+	r.Set(KeyTimestamp, time.Now())
+	r.Set(KeyTemperature1, temperature1)
+	r.Set(KeyTemperature2, temperature2)
+	r.Set(KeyTemperature3, temperature3)
+	r.Set(KeyTemperature4, temperature4)
+	r.Set(KeyOut1, b[9]&out1 > 0)
+	r.Set(KeyOut2, b[9]&out2 > 0)
+	return r, nil
 }
 
 // Close the ReadCloser handler.

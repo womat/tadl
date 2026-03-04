@@ -1,0 +1,94 @@
+# =============================================================================
+# app configuration
+# =============================================================================
+
+# logLevel defines the minimum log level.
+# Messages with at least this level are logged.
+# Allowed values: debug | info | warn | error
+logLevel: info
+
+# logDestination defines where logs are written to.
+# Supported values: stdout | stderr | /path/to/logfile
+logDestination: stdout
+
+# environment: dev | prod
+env: dev
+
+
+# =============================================================================
+# Webserver configuration (HTTPS)
+# =============================================================================
+webserver:
+  # Host address the HTTPS server listens on (0.0.0.0 = all interfaces)
+  listenHost: 0.0.0.0
+
+  # Port the HTTPS server listens on
+  listenPort: 443
+
+  # Global API key for protected endpoints
+  apiKey: changeme!
+
+  # TLS private key file
+  keyFile: /opt/tadl/etc/key.pem
+
+  # TLS certificate file
+  certFile: /opt/tadl/etc/cert.pem
+
+  # Blocked IP addresses or networks (empty = none blocked)
+  # Examples: 192.168.0.1, 192.168.0.0/16, 10.0.0.0/8
+  blockedIPs: []
+  #  - 192.168.0.1
+  #  - 192.168.0.0/16
+
+  # Allowed IP addresses or networks (empty = all allowed)
+  # Note: ::1 is the IPv6 loopback address
+  # Examples: 127.0.0.1, ::1, 192.168.0.0/16
+  allowedIPs: []
+  #  - 127.0.0.1
+  #  - ::1
+  #  - 192.168.0.0/16
+
+# =============================================================================
+# Datalogger configuration
+# =============================================================================
+datalogger:
+  # Supported types: uvr42
+  type: uvr42
+
+
+# =============================================================================
+# DL-Bus configuration
+# =============================================================================
+dlbus:
+  # GPIO input pin for DL-Bus signal
+  gpio: 4
+
+  # Debounce period in milliseconds (0 = disabled)
+  bounceTimes: 0
+
+  # GPIO line termination
+  # Supported values: pullup | pulldown | none
+  gpioTermination: none
+
+
+# =============================================================================
+# MQTT configuration
+# =============================================================================
+mqtt:
+  # Broker connection string (empty = MQTT disabled)
+  # Format: tcp://host:port
+  connection: "tcp://raspberrypi4.fritz.box:1883"
+
+  # Retain messages on the broker
+  retained: false
+
+  # MQTT topic prefix to publish measurements to
+  topicPrefix: test/uvr42
+
+  # Publish interval in seconds
+  # 0 = publish only on change (see minDeltaTemp)
+  publishInterval: 60
+
+  # Minimum temperature delta in Celsius to trigger a publish
+  # 0 = publish only by interval (see publishInterval)
+  minDeltaTemp: 0.5
