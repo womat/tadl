@@ -36,14 +36,14 @@ webserver:
 
   # Blocked IP addresses or networks (empty = none blocked)
   # Examples: 192.168.0.1, 192.168.0.0/16, 10.0.0.0/8
-  blockedIPs: []
+  blockedIPs: [ ]
   #  - 192.168.0.1
   #  - 192.168.0.0/16
 
   # Allowed IP addresses or networks (empty = all allowed)
   # Note: ::1 is the IPv6 loopback address
   # Examples: 127.0.0.1, ::1, 192.168.0.0/16
-  allowedIPs: []
+  allowedIPs: [ ]
   #  - 127.0.0.1
   #  - ::1
   #  - 192.168.0.0/16
@@ -64,12 +64,14 @@ dlbus:
   gpio: 4
 
   # Debounce period in milliseconds (0 = disabled)
-  bounceTimes: 0
+  bounceTime: 0
 
   # GPIO line termination
   # Supported values: pullup | pulldown | none
   gpioTermination: none
 
+  # DL-Bus bit clock frequency in Hz (used for timing), 0 = auto-detect
+  bitClock: 50
 
 # =============================================================================
 # MQTT configuration

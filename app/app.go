@@ -13,6 +13,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -21,6 +22,16 @@ import (
 	"strconv"
 	"sync"
 	"syscall"
+	dataloggerservice "tadl/app/service/datenloggerservice"
+	"tadl/pkg/datalogger"
+	"tadl/pkg/dlbus"
+	"time"
+
+	"github.com/womat/debug"
+	"github.com/womat/golib/gpio"
+	"github.com/womat/golib/gpio/rpi"
+	"github.com/womat/golib/manchester/decoder"
+	"github.com/womat/golib/mqtt"
 )
 
 // VERSION holds the version information with the following logic in mind
@@ -53,7 +64,20 @@ type App struct {
 	ctx        context.Context
 	cancelFunc context.CancelFunc
 
-	// add your additional handler here
+	// gpio is the handler to the rpi gpio.
+	pin gpio.Pin
+
+	// decoder ist the handler of the manchester decoder
+	decoder       *decoder.Decoder
+	decoderEvents chan decoder.Event
+
+	// dlbus ist the handler of the dlbus
+	dlbus *dlbus.ReadCloser
+
+	datalogger        datalogger.DL
+	dataloggerService *dataloggerservice.Handler
+
+	mqtt *mqtt.Handler
 }
 
 // New initializes the App struct but does not start services.
@@ -71,6 +95,8 @@ func New(config *Config, baseDir string) *App {
 		shutdown:   make(chan struct{}),
 		ctx:        ctx,
 		cancelFunc: cancel,
+
+		decoderEvents: make(chan decoder.Event, 1024),
 	}
 }
 
@@ -84,12 +110,30 @@ func (app *App) Run() (*App, error) {
 	}
 
 	// here start your services
+	app.dataloggerService.Run(app.ctx, app.mqtt)
+	app.dataloggerService.StartPeriodicPublish(app.ctx, time.Duration(app.config.MQTT.PublishInterval)*time.Second, app.mqtt)
+
+	err := app.pin.WatchFunc(app.ctx,
+		gpio.RisingEdge|gpio.FallingEdge,
+		func(evt gpio.Event) {
+			switch evt.Edge {
+			case gpio.RisingEdge:
+				app.decoderEvents <- decoder.Event{Edge: decoder.RisingEdge, Time: evt.Time}
+			case gpio.FallingEdge:
+				app.decoderEvents <- decoder.Event{Edge: decoder.FallingEdge, Time: evt.Time}
+			}
+			slog.Debug("GPIO Event", "pin", app.pin.Number(), "edge", evt.Edge, "time", evt.Time.Format("15:04:05.000000"))
+		})
+
+	if err != nil {
+		slog.Error("can't watch gpio pin", "gpio", app.config.DlBus.GPIO, "error", err)
+	}
 
 	// handle the OS signals
 	app.HandleOSSignals()
 
 	slog.Info("Starting web server", "url", app.web.Addr)
-	err := app.StartWebServer()
+	err = app.StartWebServer()
 	if err != nil {
 		slog.Error("Web server failed to start", "url", app.web.Addr, "error", err)
 		return app, err
@@ -108,7 +152,56 @@ func (app *App) Run() (*App, error) {
 // - initializes API routes
 func (app *App) Init() (err error) {
 
-	// here initialize your services
+	app.decoderEvents = make(chan decoder.Event, 1024)
+
+	if app.mqtt, err = mqtt.New(app.config.MQTT.Connection, MODULE,
+		mqtt.WithOnConnected(func() {}),
+		mqtt.WithOnConnectionLost(func(err error) {})); err != nil {
+		slog.Error("Failed to connect to MQTT broker", "broker", app.config.MQTT.Connection, "error", err)
+		return err
+	}
+
+	options := []rpi.Option{
+		rpi.WithMode(gpio.Input),
+		rpi.WithDebounce(time.Duration(app.config.DlBus.BounceTime) * time.Millisecond)}
+
+	switch app.config.DlBus.GPIOTermination {
+	case "pullup":
+		options = append(options, rpi.WithPullup(gpio.PullUp))
+	case "pulldown":
+		options = append(options, rpi.WithPullup(gpio.PullDown))
+	}
+
+	if app.pin, err = rpi.NewPin(app.config.DlBus.GPIO, options...); err != nil {
+		slog.Error("can't open gpio pin", "gpio", app.config.DlBus.GPIO, "error", err)
+		return err
+	}
+
+	// start manchaster decoder
+	app.decoder = decoder.New(app.decoderEvents,
+		app.config.DlBus.BitClock,
+		decoder.WithManchesterEncoding(decoder.IEEE))
+
+	app.dlbus = dlbus.NewReader(app.ctx, app.decoder.C)
+
+	var typ int
+	switch t := app.config.DataLogger.Type; t {
+	case "uvr42":
+		app.datalogger = datalogger.NewUVR42(app.dlbus)
+		typ = datalogger.UVR42
+	case "uvr31":
+		app.datalogger = datalogger.NewUVR31(app.dlbus)
+		typ = datalogger.UVR31
+	default:
+		debug.ErrorLog.Printf("unsupported data logger: %q", t)
+	}
+	app.dataloggerService = dataloggerservice.New(dataloggerservice.Config{
+		PublishInterval: time.Duration(app.config.MQTT.PublishInterval) * time.Microsecond,
+		MinDeltaTemp:    app.config.MQTT.MinDeltaTemp,
+		Topic:           app.config.MQTT.TopicPrefix,
+		Retained:        app.config.MQTT.Retained,
+	},
+		typ, app.datalogger)
 
 	// initRoutes should always be called at the end
 	slog.Debug("Initializing API routes")
@@ -197,6 +290,35 @@ func (app *App) Cleanup() error {
 	var errs error
 
 	// here cleanup your service
+	slog.Info("Stopt watching GPIO pin", "gpio", app.config.DlBus.GPIO)
+	if err := app.pin.StopWatching(); err != nil {
+		errs = errors.Join(errs, err)
+	}
+
+	slog.Info("Stopping periodic MQTT publish")
+	if err := app.datalogger.Close(); err != nil {
+		errs = errors.Join(errs, err)
+	}
+
+	slog.Info("Closing data logger")
+	if err := app.dlbus.Close(); err != nil {
+		errs = errors.Join(errs, err)
+	}
+
+	slog.Info("Closing Manchester decoder")
+	if err := app.decoder.Close(); err != nil {
+		errs = errors.Join(errs, err)
+	}
+
+	slog.Info("Closing GPIO pin")
+	if err := app.pin.Close(); err != nil {
+		errs = errors.Join(errs, err)
+	}
+
+	if app.mqtt != nil {
+		slog.Info("Disconnecting from MQTT broker")
+		app.mqtt.Disconnect()
+	}
 
 	return errs
 }

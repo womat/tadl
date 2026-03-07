@@ -43,7 +43,7 @@ func (h *UVR42Handler) Get() (keyvalue.Record, error) {
 		return r, ErrInvalidSize
 	}
 
-	if b[0] != uvr42 {
+	if b[0] != UVR42 {
 		return r, ErrUnsupportedDevice
 	}
 

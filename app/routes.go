@@ -42,6 +42,7 @@ func (app *App) SetupRoutes() {
 
 	// Protected routes
 	mux.Handle("GET /health", web.WithAuth(app.HandleHealth(), webCfg))
+	mux.Handle("GET /data", web.WithAuth(app.HandleData(), webCfg))
 
 	// Apply global middleware: CORS + IP filter
 	handler := web.WithCORS(mux)

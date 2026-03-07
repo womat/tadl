@@ -14,6 +14,11 @@ var (
 )
 
 const (
+	// device identifiers
+	UVR31 = 0x30
+	UVR42 = 0x10
+
+	// common keys for data frames
 	KeyTimestamp    = "timestamp"
 	KeyTemperature1 = "temperature1"
 	KeyTemperature2 = "temperature2"
@@ -33,10 +38,6 @@ type DL interface {
 }
 
 const (
-	// device identifiers
-	uvr31 = 0x30
-	uvr42 = 0x10
-
 	// valid temperature range in °C
 	tMax = 300
 	tMin = -50

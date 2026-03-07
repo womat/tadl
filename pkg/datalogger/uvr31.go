@@ -13,6 +13,10 @@ type UVR31Handler struct {
 	io.ReadCloser
 }
 
+func NewUVR31(readCloser io.ReadCloser) *UVR31Handler {
+	return &UVR31Handler{ReadCloser: readCloser}
+}
+
 // Get reads a UVR31 frame from the DL-Bus, parses it and validates the temperature values.
 func (h *UVR31Handler) Get() (keyvalue.Record, error) {
 	const (
@@ -37,7 +41,7 @@ func (h *UVR31Handler) Get() (keyvalue.Record, error) {
 		return r, ErrInvalidSize
 	}
 
-	if b[0] != uvr31 {
+	if b[0] != UVR31 {
 		return r, ErrUnsupportedDevice
 	}
 
@@ -61,5 +65,5 @@ func (h *UVR31Handler) Get() (keyvalue.Record, error) {
 
 // Close the ReadCloser handler.
 func (h *UVR31Handler) Close() error {
-	return h.ReadCloser.Close()
+	return nil
 }

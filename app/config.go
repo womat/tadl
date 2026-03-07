@@ -22,7 +22,7 @@ type Config struct {
 	Webserver      WebserverConfig  `yaml:"webserver"`      // Webserver configuration
 	MQTT           MQTTConfig       `yaml:"mqtt"`           // MQTT client configuration
 	DlBus          DlBusConfig      `yaml:"dlbus"`          // DL-Bus configuration
-	DataLogger     DataLoggerConfig `yaml:"dataLogger"`     // Data logger configuration
+	DataLogger     DataLoggerConfig `yaml:"datalogger"`     // Data logger configuration
 
 }
 
@@ -49,8 +49,9 @@ type MQTTConfig struct {
 
 type DlBusConfig struct {
 	GPIO            int    `yaml:"gpio"`            // GPIO pin for DL-Bus input
-	bounceTime      int    `yaml:"bounceTime"`      // Debounce in ms
+	BounceTime      int    `yaml:"bounceTime"`      // Debounce in ms
 	GPIOTermination string `yaml:"gpioTermination"` // Termination type for GPIO (e.g. "pullup", "pulldown", "none")
+	BitClock        int    `yaml:"bitClock"`        // DL-Bus bit clock frequency in Hz (used for timing), 0 = auto-detect
 }
 
 type DataLoggerConfig struct {
@@ -74,7 +75,7 @@ func NewConfig() *Config {
 			PublishInterval: 10,
 		},
 		DlBus: DlBusConfig{
-			bounceTime:      0,
+			BounceTime:      0,
 			GPIOTermination: "pullup",
 		},
 		DataLogger: DataLoggerConfig{
@@ -153,8 +154,12 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid gpio pin: %d, must be a valid Raspberry Pi BCM GPIO", c.DlBus.GPIO)
 	}
 
-	if c.DlBus.bounceTime < 0 {
-		return fmt.Errorf("bounceTime must be greater than 0, got %v", c.DlBus.bounceTime)
+	if c.DlBus.BounceTime < 0 {
+		return fmt.Errorf("BounceTime must be greater than 0, got %v", c.DlBus.BounceTime)
+	}
+
+	if c.DlBus.BitClock < 0 {
+		return fmt.Errorf("bitClock must be non-negative, got %v", c.DlBus.BitClock)
 	}
 
 	validGPIOTerminations := []string{"pullup", "pulldown", "none"}
@@ -162,8 +167,9 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid gpioTermination: %s, must be one of %v", c.DlBus.GPIOTermination, validGPIOTerminations)
 	}
 
-	if c.DataLogger.Type != "uvr42" {
-		return fmt.Errorf("invalid data logger type: %s, must be 'uvr42'", c.DataLogger.Type)
+	validDataLoggerTypes := []string{"uvr42", "uvr31"}
+	if !slices.Contains(validDataLoggerTypes, c.DataLogger.Type) {
+		return fmt.Errorf("invalid data logger type: %s, must be one of %v", c.DataLogger.Type, validDataLoggerTypes)
 	}
 
 	return nil
