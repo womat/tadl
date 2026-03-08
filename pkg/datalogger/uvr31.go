@@ -4,25 +4,31 @@ import (
 	"context"
 	"encoding/binary"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/womat/golib/keyvalue"
 )
 
-// UVR31Handler is the handler to read a UVR31 dataframe.
+// UVR31Handler decodes UVR31 data frames read from the DL-Bus.
 type UVR31Handler struct {
-	// done signals that run() has terminated.
-	done     chan struct{}
+	wg       sync.WaitGroup
 	logger   *slog.Logger // Optional logger for debugging and info
 	watching atomic.Bool
 }
 
+// NewUVR31 returns a new UVR31Handler.
+// Call Watch to start decoding.
 func NewUVR31() *UVR31Handler {
-	return &UVR31Handler{done: make(chan struct{})}
+	return &UVR31Handler{}
 }
 
-func (h *UVR31Handler) Watch(ctx context.Context, rx chan []byte, opts ...Option) (<-chan keyvalue.Record, error) {
+// Watch starts the decoding goroutine and returns a channel on which decoded
+// records are delivered. It returns ErrWatcherAlreadyStarted if the decoder
+// is already running.
+// Cancel ctx to stop the goroutine, then call Close to wait for it to terminate.
+func (h *UVR31Handler) Watch(ctx context.Context, rx <-chan []byte, opts ...Option) (<-chan keyvalue.Record, error) {
 	if !h.watching.CompareAndSwap(false, true) {
 		return nil, ErrWatcherAlreadyStarted
 	}
@@ -36,10 +42,9 @@ func (h *UVR31Handler) Watch(ctx context.Context, rx chan []byte, opts ...Option
 
 	go func() {
 		defer func() {
-			// closing C unblocks any pending Read() call with io.EOF
 			close(c)
-			close(h.done)
-			h.watching.Store(false) // ← Reset nach Goroutine-Ende
+			h.watching.Store(false)
+			h.wg.Done()
 		}()
 
 		for {
@@ -80,7 +85,8 @@ func (h *UVR31Handler) Watch(ctx context.Context, rx chan []byte, opts ...Option
 	return c, nil
 }
 
-// Get reads a UVR31 frame from the DL-Bus, parses it and validates the temperature values.
+// decode parses a raw UVR31 frame and returns a keyvalue.Record with the
+// measured temperatures and output states.
 func (h *UVR31Handler) decode(b []byte) (keyvalue.Record, error) {
 	const (
 		out1      byte = 1 << 5 // bitmask for Out1 (bit 5)
@@ -115,13 +121,15 @@ func (h *UVR31Handler) decode(b []byte) (keyvalue.Record, error) {
 	return r, nil
 }
 
-// Close the ReadCloser handler.
+// Close blocks until the decoding goroutine has terminated.
+// Shutdown is triggered by cancelling the context passed to Watch.
+// Close is a no-op if Watch has never been called.
 func (h *UVR31Handler) Close() error {
 	if !h.watching.Load() {
 		return nil
 	}
 
-	<-h.done
+	h.wg.Wait()
 	return nil
 }
 

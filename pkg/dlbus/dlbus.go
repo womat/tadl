@@ -2,67 +2,80 @@
 // The DL-Bus is a single-wire serial protocol used to read data from heating controllers.
 //
 // Protocol description:
-//   - Sync sequence: 16 consecutive high bits
+//   - Sync sequence: 16 consecutive high bits (interpreted by the upstream Manchester decoder)
 //   - Each byte: 1 start bit (low) + 8 data bits (LSB first) + 1 stop bit (high)
-//   - Frame ends with a new sync sequence
+//   - Frame ends when a new sync sequence is detected
+//
+// Usage:
+//
+//	h := dlbus.New()
+//	ch, err := h.Watch(ctx, bitChannel)
+//	for frame := range ch {
+//	    // process frame
+//	}
+//	h.Close()
 package dlbus
 
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 
 	"github.com/womat/golib/manchester/decoder"
 )
 
+// ErrWatcherAlreadyStarted is returned by Watch if the decoding goroutine is already running.
 var ErrWatcherAlreadyStarted = errors.New("watcher already started")
 
+// Stats holds counters for monitoring the DL-Bus decoder.
 type Stats struct {
-	DroppedFrames  uint64
-	ProtocolErrors uint64
+	DroppedFrames  uint64 // number of frames discarded because the receiver was not keeping up
+	ProtocolErrors uint64 // number of frames discarded due to a missing stop bit
 }
 
-// Handler contains the handler to read data from the DL-Bus.
+// Handler decodes a DL-Bus bit stream into complete data frames.
 type Handler struct {
-	watching atomic.Bool
-
-	// done signals that run() has terminated.
-	done chan struct{}
-
-	// droppedFrames counts C discarded because the reader was not keeping up.
-	droppedFrames atomic.Uint64
-	// protocolErrors counts C discarded due to missing stop bits.
+	watching       atomic.Bool
+	wg             sync.WaitGroup
+	droppedFrames  atomic.Uint64
 	protocolErrors atomic.Uint64
 }
 
-// New creates a new DL-Bus handler and starts the decoding goroutine.
-// The context controls the lifetime of the decoder - cancel it to stop decoding.
+// New returns a new Handler.
+// Call Watch to start decoding.
 func New() *Handler {
 	return &Handler{}
 }
 
+// Watch starts the decoding goroutine and returns a channel on which complete
+// frames are delivered. Each frame is a freshly allocated byte slice.
+// It returns ErrWatcherAlreadyStarted if the decoder is already running.
+// Cancel ctx to stop the goroutine, then call Close to wait for it to terminate.
 func (r *Handler) Watch(ctx context.Context, rx <-chan decoder.Bit) (<-chan []byte, error) {
 	if !r.watching.CompareAndSwap(false, true) {
 		return nil, ErrWatcherAlreadyStarted
 	}
 
 	tx := make(chan []byte, 10)
-	r.done = make(chan struct{})
-	go r.run(ctx, rx, tx)
+	r.wg.Add(1)
+	go r.readFrames(ctx, rx, tx)
 	return tx, nil
 }
 
-// Close waits for the decoding goroutine to terminate.
-// The actual shutdown is triggered by cancelling the context passed to New.
+// Close blocks until the decoding goroutine has terminated.
+// Shutdown is triggered by cancelling the context passed to Watch.
+// Close is a no-op if Watch has never been called.
 func (r *Handler) Close() error {
 	if !r.watching.Load() {
 		return nil
 	}
 
-	<-r.done
+	r.wg.Wait()
 	return nil
 }
 
+// Stats returns a snapshot of the current decoder counters.
 func (r *Handler) Stats() Stats {
 	return Stats{
 		DroppedFrames:  r.droppedFrames.Load(),
@@ -70,15 +83,14 @@ func (r *Handler) Stats() Stats {
 	}
 }
 
-// run receives incoming bits on rx, assembles bytes into frameBuffer
-// and sends complete C to the C channel on sync detection.
-// Stops when ctx is cancelled or the rx channel is closed.
-func (r *Handler) run(ctx context.Context, rx <-chan decoder.Bit, tx chan []byte) {
+// readFrames receives bits on rx, assembles them into bytes and collects bytes into
+// frames. A complete frame is sent to tx when a sync sequence is detected.
+// It stops when ctx is cancelled or rx is closed.
+func (r *Handler) readFrames(ctx context.Context, rx <-chan decoder.Bit, tx chan []byte) {
 	defer func() {
-		// closing C unblocks any pending Read() call with io.EOF
 		close(tx)
-		close(r.done)
 		r.watching.Store(false)
+		r.wg.Done()
 	}()
 
 	var byteRegister byte

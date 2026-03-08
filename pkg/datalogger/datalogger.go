@@ -33,7 +33,7 @@ const (
 type DL interface {
 	// Get reads a frame from the DL-Bus, parses it and validates the temperature values.
 	// Temperature values are valid if they are within the range [tMin, tMax].
-	Watch(ctx context.Context, rx chan []byte, opts ...Option) (<-chan keyvalue.Record, error)
+	Watch(ctx context.Context, rx <-chan []byte, opts ...Option) (<-chan keyvalue.Record, error)
 
 	SetLogger(l *slog.Logger)
 	// Close closes the underlying ReadCloser.
