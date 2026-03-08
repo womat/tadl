@@ -1,8 +1,10 @@
 package datalogger
 
 import (
+	"context"
 	"encoding/binary"
-	"io"
+	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/womat/golib/keyvalue"
@@ -10,16 +12,77 @@ import (
 
 // UVR42Handler is the handler to read a UVR42 dataframe.
 type UVR42Handler struct {
-	io.ReadCloser
+	// done signals that run() has terminated.
+	done     chan struct{}
+	logger   *slog.Logger // Optional logger for debugging and info
+	watching atomic.Bool
 }
 
 // NewUVR42 creates a new UVR42Handler with the given io.ReadCloser.
-func NewUVR42(readCloser io.ReadCloser) *UVR42Handler {
-	return &UVR42Handler{ReadCloser: readCloser}
+func NewUVR42() *UVR42Handler {
+	return &UVR42Handler{done: make(chan struct{})}
+}
+
+func (h *UVR42Handler) Watch(ctx context.Context, rx chan []byte, opts ...Option) (<-chan keyvalue.Record, error) {
+	if !h.watching.CompareAndSwap(false, true) {
+		return nil, ErrWatcherAlreadyStarted
+	}
+
+	c := make(chan keyvalue.Record)
+	h.logger = nil
+
+	for _, opt := range opts {
+		opt(h)
+	}
+
+	go func() {
+		defer func() {
+			// closing C unblocks any pending Read() call with io.EOF
+			close(c)
+			close(h.done)
+			h.watching.Store(false) // ← Reset nach Goroutine-Ende
+		}()
+
+		for {
+			select {
+			case <-ctx.Done():
+				if h.logger != nil {
+					h.logger.Debug("context cancelled, terminating UVR42 handler")
+				}
+				return
+			case b, open := <-rx:
+				if !open {
+					if h.logger != nil {
+						h.logger.Debug("input channel closed, terminating UVR42 handler")
+					}
+					return
+				}
+
+				kv, err := h.decode(b)
+				if err != nil {
+					if h.logger != nil {
+						h.logger.Warn("failed to decode frame", "error", err)
+					}
+					continue
+				}
+				select {
+				case c <- kv:
+				default:
+					if h.logger != nil {
+						h.logger.Warn("output channel full, dropping frame")
+					}
+					continue
+				}
+			}
+		}
+
+	}()
+
+	return c, nil
 }
 
 // Get reads a UVR42 frame from the DL-Bus, parses it and validates the temperature values.
-func (h *UVR42Handler) Get() (keyvalue.Record, error) {
+func (h *UVR42Handler) decode(b []byte) (keyvalue.Record, error) {
 	const (
 		out1      byte = 1 << 5 // bitmask for Out1 (bit 5)
 		out2      byte = 1 << 6 // bitmask for Out2 (bit 6)
@@ -28,18 +91,7 @@ func (h *UVR42Handler) Get() (keyvalue.Record, error) {
 
 	r := keyvalue.NewRecord()
 
-	if h.ReadCloser == nil {
-		return r, ErrNotConnected
-	}
-
-	b := make([]byte, frameSize)
-
-	n, err := h.Read(b)
-	if err != nil {
-		return r, err
-	}
-
-	if n != frameSize {
+	if len(b) != frameSize {
 		return r, ErrInvalidSize
 	}
 
@@ -71,5 +123,15 @@ func (h *UVR42Handler) Get() (keyvalue.Record, error) {
 
 // Close the ReadCloser handler.
 func (h *UVR42Handler) Close() error {
+	if !h.watching.Load() {
+		return nil
+	}
+
+	<-h.done
 	return nil
+}
+
+func (h *UVR42Handler) SetLogger(l *slog.Logger) {
+	h.logger = l
+	return
 }

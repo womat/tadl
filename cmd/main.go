@@ -1,4 +1,4 @@
-// Package main provides the entry point for the s0meter application.
+// Package main provides the entry point for the tadl application.
 //
 // This program initializes logging, loads configuration, handles command-line flags,
 // and starts the main application loop. It supports hot reloads of the config
@@ -132,7 +132,7 @@ func About() string {
 		"Binary":   filepath.Join("/opt", app.MODULE, "bin", app.MODULE),
 		"Date":     buildDate,
 		"Commit":   buildCommit,
-		"Desc":     app.MODULE + " reads impulses from an S0 interface compliant with DIN 43864 standards",
+		"Desc":     app.MODULE + " is Datalogger for DL-Bus of Technische Alternative\n",
 		"Help":     filepath.Join("/opt", app.MODULE, "bin", app.MODULE) + " --help",
 		"Main":     filepath.Join("/opt/src", app.MODULE, "cmd", app.MODULE, "main.go"),
 		"ProgLang": runtime.Version(),

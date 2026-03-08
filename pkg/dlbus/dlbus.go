@@ -10,35 +10,34 @@ package dlbus
 import (
 	"context"
 	"fmt"
-	"io"
 	"sync/atomic"
 
 	"github.com/womat/golib/manchester/decoder"
 )
 
-// ReadCloser contains the handler to read data from the DL-Bus.
-type ReadCloser struct {
+// Handler contains the handler to read data from the DL-Bus.
+type Handler struct {
 	// rx receives the decoded bit stream from the manchester decoder.
 	rx chan decoder.Bit
-	// frames transports complete DL-Bus frames from run() to Read().
+	// C transports complete DL-Bus C from run() to Read().
 	// The channel has a capacity of 1 to allow run() to continue while Read() is processing.
-	frames chan []byte
+	C chan []byte
 	// done signals that run() has terminated.
 	done chan struct{}
 
-	// droppedFrames counts frames discarded because the reader was not keeping up.
+	// droppedFrames counts C discarded because the reader was not keeping up.
 	droppedFrames atomic.Uint64
-	// protocolErrors counts frames discarded due to missing stop bits.
+	// protocolErrors counts C discarded due to missing stop bits.
 	protocolErrors atomic.Uint64
 }
 
-// NewReader creates a new DL-Bus handler and starts the decoding goroutine.
+// New creates a new DL-Bus handler and starts the decoding goroutine.
 // The context controls the lifetime of the decoder - cancel it to stop decoding.
-func NewReader(ctx context.Context, rx chan decoder.Bit) *ReadCloser {
-	h := &ReadCloser{
-		rx:     rx,
-		frames: make(chan []byte, 1),
-		done:   make(chan struct{}),
+func New(ctx context.Context, rx chan decoder.Bit) *Handler {
+	h := &Handler{
+		rx:   rx,
+		C:    make(chan []byte, 10),
+		done: make(chan struct{}),
 	}
 
 	go h.run(ctx)
@@ -46,41 +45,28 @@ func NewReader(ctx context.Context, rx chan decoder.Bit) *ReadCloser {
 	return h
 }
 
-// Read returns the next complete DL-Bus frame.
-// Blocks until a frame is available or the decoder is stopped.
-// Returns io.EOF when the decoder has been stopped via context cancellation.
-func (r *ReadCloser) Read(b []byte) (int, error) {
-	frame, ok := <-r.frames
-	if !ok {
-		// frames channel was closed by run() - decoder has stopped
-		return 0, io.EOF
-	}
-	n := copy(b, frame)
-	return n, nil
-}
-
 // Close waits for the decoding goroutine to terminate.
-// The actual shutdown is triggered by cancelling the context passed to NewReader.
-func (r *ReadCloser) Close() error {
+// The actual shutdown is triggered by cancelling the context passed to New.
+func (r *Handler) Close() error {
 	<-r.done
 	return nil
 }
 
-func (r *ReadCloser) Info() string {
+func (r *Handler) Info() string {
 	return fmt.Sprintf(
-		"DL-Bus dropped frames: %v, protocol errors: %v",
+		"DL-Bus dropped C: %v, protocol errors: %v",
 		r.droppedFrames.Load(),
 		r.protocolErrors.Load(),
 	)
 }
 
 // run receives incoming bits on rx, assembles bytes into frameBuffer
-// and sends complete frames to the frames channel on sync detection.
+// and sends complete C to the C channel on sync detection.
 // Stops when ctx is cancelled or the rx channel is closed.
-func (r *ReadCloser) run(ctx context.Context) {
+func (r *Handler) run(ctx context.Context) {
 	defer func() {
-		// closing frames unblocks any pending Read() call with io.EOF
-		close(r.frames)
+		// closing C unblocks any pending Read() call with io.EOF
+		close(r.C)
 		close(r.done)
 	}()
 
@@ -107,7 +93,7 @@ func (r *ReadCloser) run(ctx context.Context) {
 				// sync bit received - send completed frame to reader if not empty
 				if len(frameBuffer) > 0 {
 					select {
-					case r.frames <- frameBuffer:
+					case r.C <- frameBuffer:
 						// frameBuffer is sent as a slice header (pointer, length, capacity).
 						// The underlying array is now owned by the receiver (Read()).
 						// We must allocate a new backing array here to avoid data races

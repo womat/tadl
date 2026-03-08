@@ -1,6 +1,6 @@
 // Package app provides the main application.
 //
-// It initializes S0 meters, handles MQTT publishing, periodic backups,
+// It initializes tadl, handles MQTT publishing, periodic backups,
 // web server startup, and OS signal handling for graceful shutdowns
 // or restarts.
 //
@@ -14,6 +14,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -27,7 +28,6 @@ import (
 	"tadl/pkg/dlbus"
 	"time"
 
-	"github.com/womat/debug"
 	"github.com/womat/golib/gpio"
 	"github.com/womat/golib/gpio/rpi"
 	"github.com/womat/golib/manchester/decoder"
@@ -72,7 +72,7 @@ type App struct {
 	decoderEvents chan decoder.Event
 
 	// dlbus ist the handler of the dlbus
-	dlbus *dlbus.ReadCloser
+	dlbus *dlbus.Handler
 
 	datalogger        datalogger.DL
 	dataloggerService *dataloggerservice.Handler
@@ -110,10 +110,19 @@ func (app *App) Run() (*App, error) {
 	}
 
 	// here start your services
-	app.dataloggerService.Run(app.ctx, app.mqtt)
-	app.dataloggerService.StartPeriodicPublish(app.ctx, time.Duration(app.config.MQTT.PublishInterval)*time.Second, app.mqtt)
+	var options []datalogger.Option
+	if app.config.LogLevel == "debug" {
+		options = append(options, datalogger.WithLogger(slog.Default()))
+	}
 
-	err := app.pin.WatchFunc(app.ctx,
+	watcher, err := app.datalogger.Watch(app.ctx, app.dlbus.C, options...)
+	if err != nil {
+		slog.Error("Failed to start data logger watcher", "error", err)
+		return app, err
+	}
+	app.dataloggerService.Run(app.ctx, watcher, app.mqtt)
+	app.dataloggerService.StartPeriodicPublish(app.ctx, time.Duration(app.config.MQTT.PublishInterval)*time.Second, app.mqtt)
+	err = app.pin.WatchFunc(app.ctx,
 		gpio.RisingEdge|gpio.FallingEdge,
 		func(evt gpio.Event) {
 			switch evt.Edge {
@@ -182,18 +191,19 @@ func (app *App) Init() (err error) {
 		app.config.DlBus.BitClock,
 		decoder.WithManchesterEncoding(decoder.IEEE))
 
-	app.dlbus = dlbus.NewReader(app.ctx, app.decoder.C)
+	app.dlbus = dlbus.New(app.ctx, app.decoder.C)
 
 	var typ int
 	switch t := app.config.DataLogger.Type; t {
 	case "uvr42":
-		app.datalogger = datalogger.NewUVR42(app.dlbus)
+		app.datalogger = datalogger.NewUVR42()
 		typ = datalogger.UVR42
 	case "uvr31":
-		app.datalogger = datalogger.NewUVR31(app.dlbus)
+		app.datalogger = datalogger.NewUVR31()
 		typ = datalogger.UVR31
 	default:
-		debug.ErrorLog.Printf("unsupported data logger: %q", t)
+		slog.Error("Unsupported data logger", "type", t)
+		return fmt.Errorf("unsupported data logger type: %q", t)
 	}
 	app.dataloggerService = dataloggerservice.New(dataloggerservice.Config{
 		PublishInterval: time.Duration(app.config.MQTT.PublishInterval) * time.Microsecond,
@@ -201,7 +211,7 @@ func (app *App) Init() (err error) {
 		Topic:           app.config.MQTT.TopicPrefix,
 		Retained:        app.config.MQTT.Retained,
 	},
-		typ, app.datalogger)
+		typ)
 
 	// initRoutes should always be called at the end
 	slog.Debug("Initializing API routes")

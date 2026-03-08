@@ -3,7 +3,6 @@ package dataloggerservice
 import (
 	"context"
 	"errors"
-	"io"
 	"log/slog"
 	"math"
 	"sync"
@@ -16,7 +15,6 @@ import (
 
 type Handler struct {
 	mux       sync.Mutex
-	dl        datalogger.DL
 	typ       int // Datalogger Type UVR31 or UVR42
 	config    Config
 	DataFrame keyvalue.Record
@@ -29,9 +27,8 @@ type Config struct {
 	Retained        bool
 }
 
-func New(conf Config, t int, dl datalogger.DL) *Handler {
+func New(conf Config, t int) *Handler {
 	return &Handler{
-		dl:     dl,
 		typ:    t,
 		config: conf,
 	}
@@ -39,45 +36,39 @@ func New(conf Config, t int, dl datalogger.DL) *Handler {
 
 // service wait in an endless loop for valid data logger frames.
 // It save the data frame to app main structure and send the dataframe to the mqtt broker
-func (h *Handler) Run(ctx context.Context, mqtt *mqtt.Handler) {
-
+func (h *Handler) Run(ctx context.Context, rx <-chan keyvalue.Record, mqtt *mqtt.Handler) {
 	go func() {
 		for {
 			select {
 			case <-ctx.Done():
 				slog.Info("Stopping datalogger service")
 				return
-			default:
-			}
 
-			f, err := h.dl.Get()
-			if err != nil {
-				if err == io.EOF {
+			case f, open := <-rx:
+				if !open {
+					slog.Info("Datalogger watcher channel closed")
 					return
 				}
 
-				slog.Error("Failed to get data frame", "err", err)
-				continue
-			}
-
-			h.mux.Lock()
-			hasChanged, err := h.hasChanged(f)
-			h.mux.Unlock()
-
-			if err != nil {
-				slog.Error("Failed to validate measurements", "err", err)
+				h.mux.Lock()
+				hasChanged, err := h.hasChanged(f)
 				h.mux.Unlock()
-				continue
-			}
 
-			h.mux.Lock()
-			h.DataFrame = f
-			h.mux.Unlock()
-
-			if hasChanged {
-				err = h.PublishFrame(mqtt)
 				if err != nil {
-					slog.Error("Failed to publish data frame", "err", err)
+					slog.Error("Failed to validate measurements", "err", err)
+					h.mux.Unlock()
+					continue
+				}
+
+				h.mux.Lock()
+				h.DataFrame = f
+				h.mux.Unlock()
+
+				if hasChanged {
+					err = h.PublishFrame(mqtt)
+					if err != nil {
+						slog.Error("Failed to publish data frame", "err", err)
+					}
 				}
 			}
 		}
