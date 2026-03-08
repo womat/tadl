@@ -37,12 +37,8 @@ type Handler struct {
 
 // New creates a new DL-Bus handler and starts the decoding goroutine.
 // The context controls the lifetime of the decoder - cancel it to stop decoding.
-func New(ctx context.Context, rx chan decoder.Bit) *Handler {
-	h := &Handler{
-		done: make(chan struct{}),
-	}
-
-	return h
+func New() *Handler {
+	return &Handler{}
 }
 
 func (r *Handler) Watch(ctx context.Context, rx <-chan decoder.Bit) (<-chan []byte, error) {
@@ -63,10 +59,7 @@ func (r *Handler) Close() error {
 		return nil
 	}
 
-	select {
-	case <-r.done:
-	default:
-	}
+	<-r.done
 	return nil
 }
 
@@ -85,6 +78,7 @@ func (r *Handler) run(ctx context.Context, rx <-chan decoder.Bit, tx chan []byte
 		// closing C unblocks any pending Read() call with io.EOF
 		close(tx)
 		close(r.done)
+		r.watching.Store(false)
 	}()
 
 	var byteRegister byte
