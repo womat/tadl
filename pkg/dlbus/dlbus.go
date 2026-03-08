@@ -9,11 +9,15 @@ package dlbus
 
 import (
 	"context"
-	"fmt"
 	"sync/atomic"
 
 	"github.com/womat/golib/manchester/decoder"
 )
+
+type Stats struct {
+	DroppedFrames  uint64
+	ProtocolErrors uint64
+}
 
 // Handler contains the handler to read data from the DL-Bus.
 type Handler struct {
@@ -21,6 +25,7 @@ type Handler struct {
 	rx chan decoder.Bit
 	// C transports complete DL-Bus C from run() to Read().
 	// The channel has a capacity of 1 to allow run() to continue while Read() is processing.
+
 	C chan []byte
 	// done signals that run() has terminated.
 	done chan struct{}
@@ -48,16 +53,18 @@ func New(ctx context.Context, rx chan decoder.Bit) *Handler {
 // Close waits for the decoding goroutine to terminate.
 // The actual shutdown is triggered by cancelling the context passed to New.
 func (r *Handler) Close() error {
-	<-r.done
+	select {
+	case <-r.done:
+	default:
+	}
 	return nil
 }
 
-func (r *Handler) Info() string {
-	return fmt.Sprintf(
-		"DL-Bus dropped C: %v, protocol errors: %v",
-		r.droppedFrames.Load(),
-		r.protocolErrors.Load(),
-	)
+func (r *Handler) Stats() Stats {
+	return Stats{
+		DroppedFrames:  r.droppedFrames.Load(),
+		ProtocolErrors: r.protocolErrors.Load(),
+	}
 }
 
 // run receives incoming bits on rx, assembles bytes into frameBuffer
@@ -88,6 +95,7 @@ func (r *Handler) run(ctx context.Context) {
 				// invalid bit received - reset current byte, wait for next sync
 				byteRegister = 0
 				bitIndex = 0
+				frameBuffer = frameBuffer[:0]
 
 			case bitIndex == 0 && bit == decoder.High:
 				// sync bit received - send completed frame to reader if not empty
