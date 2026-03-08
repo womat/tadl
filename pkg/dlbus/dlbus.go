@@ -9,10 +9,13 @@ package dlbus
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 
 	"github.com/womat/golib/manchester/decoder"
 )
+
+var ErrWatcherAlreadyStarted = errors.New("watcher already started")
 
 type Stats struct {
 	DroppedFrames  uint64
@@ -21,12 +24,8 @@ type Stats struct {
 
 // Handler contains the handler to read data from the DL-Bus.
 type Handler struct {
-	// rx receives the decoded bit stream from the manchester decoder.
-	rx chan decoder.Bit
-	// C transports complete DL-Bus C from run() to Read().
-	// The channel has a capacity of 1 to allow run() to continue while Read() is processing.
+	watching atomic.Bool
 
-	C chan []byte
 	// done signals that run() has terminated.
 	done chan struct{}
 
@@ -40,19 +39,30 @@ type Handler struct {
 // The context controls the lifetime of the decoder - cancel it to stop decoding.
 func New(ctx context.Context, rx chan decoder.Bit) *Handler {
 	h := &Handler{
-		rx:   rx,
-		C:    make(chan []byte, 10),
 		done: make(chan struct{}),
 	}
 
-	go h.run(ctx)
-
 	return h
+}
+
+func (r *Handler) Watch(ctx context.Context, rx <-chan decoder.Bit) (<-chan []byte, error) {
+	if !r.watching.CompareAndSwap(false, true) {
+		return nil, ErrWatcherAlreadyStarted
+	}
+
+	tx := make(chan []byte, 10)
+	r.done = make(chan struct{})
+	go r.run(ctx, rx, tx)
+	return tx, nil
 }
 
 // Close waits for the decoding goroutine to terminate.
 // The actual shutdown is triggered by cancelling the context passed to New.
 func (r *Handler) Close() error {
+	if !r.watching.Load() {
+		return nil
+	}
+
 	select {
 	case <-r.done:
 	default:
@@ -70,10 +80,10 @@ func (r *Handler) Stats() Stats {
 // run receives incoming bits on rx, assembles bytes into frameBuffer
 // and sends complete C to the C channel on sync detection.
 // Stops when ctx is cancelled or the rx channel is closed.
-func (r *Handler) run(ctx context.Context) {
+func (r *Handler) run(ctx context.Context, rx <-chan decoder.Bit, tx chan []byte) {
 	defer func() {
 		// closing C unblocks any pending Read() call with io.EOF
-		close(r.C)
+		close(tx)
 		close(r.done)
 	}()
 
@@ -85,7 +95,7 @@ func (r *Handler) run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case bit, open := <-r.rx:
+		case bit, open := <-rx:
 			if !open {
 				return
 			}
@@ -101,7 +111,7 @@ func (r *Handler) run(ctx context.Context) {
 				// sync bit received - send completed frame to reader if not empty
 				if len(frameBuffer) > 0 {
 					select {
-					case r.C <- frameBuffer:
+					case tx <- frameBuffer:
 						// frameBuffer is sent as a slice header (pointer, length, capacity).
 						// The underlying array is now owned by the receiver (Read()).
 						// We must allocate a new backing array here to avoid data races
