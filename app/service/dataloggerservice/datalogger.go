@@ -119,15 +119,15 @@ func (h *Handler) hasChanged(current keyvalue.Record) (bool, error) {
 	switch h.typ {
 	case datalogger.UVR42:
 		return elapsed > h.config.PublishInterval ||
-			current.Int(datalogger.KeyOut1) != h.DataFrame.Int(datalogger.KeyOut1) ||
-			current.Int(datalogger.KeyOut2) != h.DataFrame.Int(datalogger.KeyOut2) ||
+			current.Bool(datalogger.KeyOut1) != h.DataFrame.Bool(datalogger.KeyOut1) ||
+			current.Bool(datalogger.KeyOut2) != h.DataFrame.Bool(datalogger.KeyOut2) ||
 			tempChanged(current, h.DataFrame, datalogger.KeyTemperature1, h.config.MinDeltaTemp) ||
 			tempChanged(current, h.DataFrame, datalogger.KeyTemperature2, h.config.MinDeltaTemp) ||
 			tempChanged(current, h.DataFrame, datalogger.KeyTemperature3, h.config.MinDeltaTemp) ||
 			tempChanged(current, h.DataFrame, datalogger.KeyTemperature4, h.config.MinDeltaTemp), nil
 	case datalogger.UVR31:
 		return elapsed > h.config.PublishInterval ||
-			current.Int(datalogger.KeyOut1) != h.DataFrame.Int(datalogger.KeyOut1) ||
+			current.Bool(datalogger.KeyOut1) != h.DataFrame.Bool(datalogger.KeyOut1) ||
 			tempChanged(current, h.DataFrame, datalogger.KeyTemperature1, h.config.MinDeltaTemp) ||
 			tempChanged(current, h.DataFrame, datalogger.KeyTemperature2, h.config.MinDeltaTemp) ||
 			tempChanged(current, h.DataFrame, datalogger.KeyTemperature3, h.config.MinDeltaTemp), nil

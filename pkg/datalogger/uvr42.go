@@ -1,9 +1,19 @@
+// UVR42Handler decodes DL-Bus frames from a Technische Alternative UVR42
+// controller (device ID 0x10).
+//
+// Frame layout (10 bytes):
+//
+//	Byte 0:    Device ID (0x10)
+//	Bytes 1–2: Temperature 1 (int16, little-endian, unit 0.1 °C)
+//	Bytes 3–4: Temperature 2 (int16, little-endian, unit 0.1 °C)
+//	Bytes 5–6: Temperature 3 (int16, little-endian, unit 0.1 °C)
+//	Bytes 7–8: Temperature 4 (int16, little-endian, unit 0.1 °C)
+//	Byte 9:    Output bits (bit 5 = Out1, bit 6 = Out2)
 package datalogger
 
 import (
 	"context"
 	"encoding/binary"
-	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,31 +24,33 @@ import (
 // UVR42Handler decodes UVR42 data frames read from the DL-Bus.
 type UVR42Handler struct {
 	wg       sync.WaitGroup
-	logger   *slog.Logger // Optional logger for debugging and info
 	watching atomic.Bool
 }
 
-// NewUVR42 returns a new UVR42Handler.
-// Call Watch to start decoding.
+// NewUVR42 returns a new UVR42Handler ready to use.
+// Call Watch to start decoding frames.
 func NewUVR42() *UVR42Handler {
 	return &UVR42Handler{}
 }
 
 // Watch starts the decoding goroutine and returns a channel on which decoded
-// records are delivered. It returns ErrWatcherAlreadyStarted if the decoder
-// is already running.
-// Cancel ctx to stop the goroutine, then call Close to wait for it to terminate.
+// keyvalue.Records are delivered. Each record contains the measured temperatures
+// and output states keyed by the Key* constants.
+//
+// Returns ErrWatcherAlreadyStarted if the handler is already running.
+// Cancel ctx to stop the goroutine, then call Close to wait for it to finish.
 func (h *UVR42Handler) Watch(ctx context.Context, rx <-chan []byte, opts ...Option) (<-chan keyvalue.Record, error) {
 	if !h.watching.CompareAndSwap(false, true) {
 		return nil, ErrWatcherAlreadyStarted
 	}
 
 	c := make(chan keyvalue.Record)
-	h.logger = nil
 
+	o := &options{}
 	for _, opt := range opts {
-		opt(h)
+		opt(o)
 	}
+	logger := o.logger
 
 	h.wg.Add(1)
 	go func() {
@@ -51,30 +63,30 @@ func (h *UVR42Handler) Watch(ctx context.Context, rx <-chan []byte, opts ...Opti
 		for {
 			select {
 			case <-ctx.Done():
-				if h.logger != nil {
-					h.logger.Debug("context cancelled, terminating UVR42 handler")
+				if logger != nil {
+					logger.Debug("context cancelled, terminating UVR42 handler")
 				}
 				return
 			case b, open := <-rx:
 				if !open {
-					if h.logger != nil {
-						h.logger.Debug("input channel closed, terminating UVR42 handler")
+					if logger != nil {
+						logger.Debug("input channel closed, terminating UVR42 handler")
 					}
 					return
 				}
 
 				kv, err := h.decode(b)
 				if err != nil {
-					if h.logger != nil {
-						h.logger.Warn("failed to decode frame", "error", err)
+					if logger != nil {
+						logger.Warn("failed to decode frame", "error", err)
 					}
 					continue
 				}
 				select {
 				case c <- kv:
 				default:
-					if h.logger != nil {
-						h.logger.Warn("output channel full, dropping frame")
+					if logger != nil {
+						logger.Warn("output channel full, dropping frame")
 					}
 					continue
 				}
@@ -86,8 +98,9 @@ func (h *UVR42Handler) Watch(ctx context.Context, rx <-chan []byte, opts ...Opti
 	return c, nil
 }
 
-// decode parses a raw UVR42 frame and returns a keyvalue.Record with the
-// measured temperatures and output states.
+// decode parses a raw 10-byte UVR42 frame into a keyvalue.Record.
+// Returns ErrInvalidSize, ErrUnsupportedDevice, or ErrInvalidTemperature
+// if the frame cannot be decoded.
 func (h *UVR42Handler) decode(b []byte) (keyvalue.Record, error) {
 	const (
 		out1      byte = 1 << 5 // bitmask for Out1 (bit 5)
@@ -128,8 +141,7 @@ func (h *UVR42Handler) decode(b []byte) (keyvalue.Record, error) {
 }
 
 // Close blocks until the decoding goroutine has terminated.
-// Shutdown is triggered by cancelling the context passed to Watch.
-// Close is a no-op if Watch has never been called.
+// It is a no-op if Watch has never been called.
 func (h *UVR42Handler) Close() error {
 	if !h.watching.Load() {
 		return nil
@@ -137,8 +149,4 @@ func (h *UVR42Handler) Close() error {
 
 	h.wg.Wait()
 	return nil
-}
-
-func (h *UVR42Handler) SetLogger(l *slog.Logger) {
-	h.logger = l
 }

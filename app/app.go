@@ -23,7 +23,7 @@ import (
 	"strconv"
 	"sync"
 	"syscall"
-	dataloggerservice "tadl/app/service/datenloggerservice"
+	dataloggerservice "tadl/app/service/dataloggerservice"
 	"tadl/pkg/datalogger"
 	"tadl/pkg/dlbus"
 	"time"
@@ -109,18 +109,24 @@ func (app *App) Run() (*App, error) {
 		return app, err
 	}
 
+	dlbusWatcher, err := app.dlbus.Watch(app.ctx, app.decoder.C)
+	if err != nil {
+		slog.Error("Failed to start DL-Bus watcher", "error", err)
+		return app, err
+	}
+
 	// here start your services
 	var options []datalogger.Option
 	if app.config.LogLevel == "debug" {
 		options = append(options, datalogger.WithLogger(slog.Default()))
 	}
 
-	watcher, err := app.datalogger.Watch(app.ctx, app.dlbus.C, options...)
+	dataloggerWatcher, err := app.datalogger.Watch(app.ctx, dlbusWatcher, options...)
 	if err != nil {
 		slog.Error("Failed to start data logger watcher", "error", err)
 		return app, err
 	}
-	app.dataloggerService.Run(app.ctx, watcher, app.mqtt)
+	app.dataloggerService.Run(app.ctx, dataloggerWatcher, app.mqtt)
 	app.dataloggerService.StartPeriodicPublish(app.ctx, time.Duration(app.config.MQTT.PublishInterval)*time.Second, app.mqtt)
 	err = app.pin.WatchFunc(app.ctx,
 		gpio.RisingEdge|gpio.FallingEdge,
@@ -191,7 +197,7 @@ func (app *App) Init() (err error) {
 		app.config.DlBus.BitClock,
 		decoder.WithManchesterEncoding(decoder.IEEE))
 
-	app.dlbus = dlbus.New(app.ctx, app.decoder.C)
+	app.dlbus = dlbus.New()
 
 	var typ int
 	switch t := app.config.DataLogger.Type; t {
