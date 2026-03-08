@@ -133,5 +133,4 @@ func (h *UVR42Handler) Close() error {
 
 func (h *UVR42Handler) SetLogger(l *slog.Logger) {
 	h.logger = l
-	return
 }

@@ -46,13 +46,13 @@ func (h *UVR31Handler) Watch(ctx context.Context, rx chan []byte, opts ...Option
 			select {
 			case <-ctx.Done():
 				if h.logger != nil {
-					h.logger.Debug("context cancelled, terminating UVR42 handler")
+					h.logger.Debug("context cancelled, terminating UVR31 handler")
 				}
 				return
 			case b, open := <-rx:
 				if !open {
 					if h.logger != nil {
-						h.logger.Debug("input channel closed, terminating UVR42 handler")
+						h.logger.Debug("input channel closed, terminating UVR31 handler")
 					}
 					return
 				}
@@ -127,5 +127,4 @@ func (h *UVR31Handler) Close() error {
 
 func (h *UVR31Handler) SetLogger(l *slog.Logger) {
 	h.logger = l
-	return
 }
