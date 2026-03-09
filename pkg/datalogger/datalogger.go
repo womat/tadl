@@ -19,7 +19,6 @@
 package datalogger
 
 import (
-	"context"
 	"errors"
 	"log/slog"
 
@@ -62,7 +61,7 @@ const (
 type DL interface {
 	// Watch starts the decoding goroutine and returns a channel on which
 	// decoded keyvalue.Records are delivered. Cancel ctx to stop decoding.
-	Watch(ctx context.Context, rx <-chan []byte, opts ...Option) (<-chan keyvalue.Record, error)
+	Watch(rx <-chan []byte, opts ...Option) (<-chan keyvalue.Record, error)
 
 	// Close blocks until the decoding goroutine has terminated.
 	// It is a no-op if Watch has never been called.

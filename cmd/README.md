@@ -1,20 +1,16 @@
 # tadl
 
-Datalogger for DL-Bus of Technische Alternative
+**Datalogger for DL-Bus of Technische Alternative**
 
-## Features
-
-- Publishes data via MQTT
-- Exposes an HTTPS API for live readings
-- Supports hot-reload of configuration
-
+Reads sensor data from UVR31/UVR42 heating controllers via the DL-Bus protocol on a Raspberry Pi,
+exposes the data via a secured HTTPS REST API, and publishes it to an MQTT broker.
 ---
 
-## Command-line Flags
+## Command-Line Flags
 
 | Flag        | Default                        | Description                                                         |
 |-------------|--------------------------------|---------------------------------------------------------------------|
-| `--config`  | `/opt/tadl/etc/config.yaml` | Path to the configuration file                                      |
+| `--config`  | `/opt/tadl/etc/config.yaml`    | Path to the configuration file                                      |
 | `--debug`   | `false`                        | Enable debug logging to stdout (overrides log settings from config) |
 | `--version` | `false`                        | Print the application version and exit                              |
 | `--about`   | `false`                        | Print application details and exit                                  |
@@ -22,9 +18,7 @@ Datalogger for DL-Bus of Technische Alternative
 
 The config file path can also be set via the environment variable `CONFIG_FILE`.
 
-**Examples:**
-
-```bash
+```sh
 tadl --config /etc/tadl/config.yaml
 tadl --debug
 tadl --version
@@ -36,48 +30,44 @@ CONFIG_FILE=/etc/tadl/config.yaml tadl
 ## Configuration
 
 The configuration file is a YAML file. By default it is loaded from `/opt/tadl/etc/config.yaml`.
-
-### Full Example
+Environment variables are expanded inside the file, e.g. `apiKey: ${TADL_API_KEY}`.
 
 ```yaml
-# =============================================================================
-# tadl configuration
-# =============================================================================
-
-# logLevel defines the minimum log level.
-# Allowed values: debug | info | warn | error
+# Log level: debug | info | warn | error
 logLevel: info
 
-# logDestination defines where logs are written to.
-# Supported values: stdout | stderr | /path/to/logfile
+# Log destination: stdout | stderr | /path/to/logfile
 logDestination: stdout
 
-# =============================================================================
-# Webserver configuration (HTTPS)
-# =============================================================================
+# Environment: dev | prod
+env: dev
+
 webserver:
-  # Host address the HTTPS server listens on (0.0.0.0 = all interfaces)
   listenHost: 0.0.0.0
-
-  # Port the HTTPS server listens on (default: 8443)
   listenPort: 8443
-
-  # Global API key for protected endpoints
   apiKey: changeme!
-
-  # TLS private key file
   keyFile: /opt/tadl/etc/key.pem
-
-  # TLS certificate file
   certFile: /opt/tadl/etc/cert.pem
+  blockedIPs: []
+  allowedIPs: []
 
-  # Blocked IP addresses or networks (empty = none blocked)
-  blockedIPs: [ ]
-  #  - 192.168.0.1
-  #  - 192.168.0.0/16
+datalogger:
+  # Supported types: uvr42 | uvr31
+  type: uvr42
 
-  # Allowed IP addresses or networks (empty = all allowed)
-  allowedIPs: [ ]
-  #  - 127.0.0.1
-  #  - ::1
-  #  - 192.168.0.0/16
+dlbus:
+  gpio: 4                  # BCM GPIO pin number
+  bounceTime: 0            # Debounce in ms (0 = disabled)
+  gpioTermination: pullup  # pullup | pulldown | none
+  bitClock: 50             # Bit clock in Hz (0 = auto-detect)
+
+mqtt:
+  connection: "tcp://broker.example.com:1883"  # empty = MQTT disabled
+  retained: false
+  topicPrefix: home/uvr42
+  publishInterval: 60    # seconds
+  minDeltaTemp: 0.5      # minimum °C change to trigger publish
+```
+
+---
+

@@ -2,7 +2,7 @@
 // The DL-Bus is a single-wire serial protocol used to read data from heating controllers.
 //
 // Protocol description:
-//   - Sync sequence: 16 consecutive high bits (interpreted by the upstream Manchester decoder)
+//   - Sync sequence: detected as 16 consecutive high bits on the decoded bit stream
 //   - Each byte: 1 start bit (low) + 8 data bits (LSB first) + 1 stop bit (high)
 //   - Frame ends when a new sync sequence is detected
 //
@@ -36,8 +36,10 @@ type Stats struct {
 
 // Handler decodes a DL-Bus bit stream into complete data frames.
 type Handler struct {
-	watching       atomic.Bool
-	wg             sync.WaitGroup
+	watching atomic.Bool
+	wg       sync.WaitGroup
+	cancel   context.CancelFunc
+
 	droppedFrames  atomic.Uint64
 	protocolErrors atomic.Uint64
 }
@@ -51,11 +53,14 @@ func New() *Handler {
 // Watch starts the decoding goroutine and returns a channel on which complete
 // frames are delivered. Each frame is a freshly allocated byte slice.
 // It returns ErrWatcherAlreadyStarted if the decoder is already running.
-// Cancel ctx to stop the goroutine, then call Close to wait for it to terminate.
-func (r *Handler) Watch(ctx context.Context, rx <-chan decoder.Bit) (<-chan []byte, error) {
+// Call Close() to stop the goroutine and wait for it to terminate.
+func (r *Handler) Watch(rx <-chan decoder.Bit) (<-chan []byte, error) {
 	if !r.watching.CompareAndSwap(false, true) {
 		return nil, ErrWatcherAlreadyStarted
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	r.cancel = cancel
 
 	tx := make(chan []byte, 10)
 	r.wg.Add(1)
@@ -63,14 +68,14 @@ func (r *Handler) Watch(ctx context.Context, rx <-chan decoder.Bit) (<-chan []by
 	return tx, nil
 }
 
-// Close blocks until the decoding goroutine has terminated.
-// Shutdown is triggered by cancelling the context passed to Watch.
-// Close is a no-op if Watch has never been called.
+// Close stops the decoding goroutine and waits for it to terminate.
+// It is a no-op if Watch has never been called.
 func (r *Handler) Close() error {
 	if !r.watching.Load() {
 		return nil
 	}
 
+	r.cancel()
 	r.wg.Wait()
 	return nil
 }

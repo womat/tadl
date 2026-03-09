@@ -4,6 +4,60 @@
         "contact": {}
     },
     "paths": {
+        "/data": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Returns the latest available values read from the configured data logger.\nThe response structure depends on the configured device type:\nUVR42 returns temperature1–4, out1, out2 and a timestamp.\nUVR31 returns temperature1–3, out1 and a timestamp.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "data"
+                ],
+                "summary": "Get current data logger values",
+                "responses": {
+                    "200": {
+                        "description": "Current data logger values",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "out1": {
+                                    "type": "boolean"
+                                },
+                                "out2": {
+                                    "type": "boolean"
+                                },
+                                "temperature1": {
+                                    "type": "number"
+                                },
+                                "temperature2": {
+                                    "type": "number"
+                                },
+                                "temperature3": {
+                                    "type": "number"
+                                },
+                                "temperature4": {
+                                    "type": "number"
+                                },
+                                "timestamp": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/health": {
             "get": {
                 "security": [

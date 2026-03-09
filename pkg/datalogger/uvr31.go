@@ -22,8 +22,9 @@ import (
 
 // UVR31Handler decodes UVR31 data frames read from the DL-Bus.
 type UVR31Handler struct {
-	wg       sync.WaitGroup
 	watching atomic.Bool
+	wg       sync.WaitGroup
+	cancel   context.CancelFunc
 }
 
 // NewUVR31 returns a new UVR31Handler ready to use.
@@ -37,19 +38,22 @@ func NewUVR31() *UVR31Handler {
 // and output states keyed by the Key* constants.
 //
 // Returns ErrWatcherAlreadyStarted if the handler is already running.
-// Cancel ctx to stop the goroutine, then call Close to wait for it to finish.
-func (h *UVR31Handler) Watch(ctx context.Context, rx <-chan []byte, opts ...Option) (<-chan keyvalue.Record, error) {
+// Call Close() to stop the goroutine and wait for it to finish.
+func (h *UVR31Handler) Watch(rx <-chan []byte, opts ...Option) (<-chan keyvalue.Record, error) {
 	if !h.watching.CompareAndSwap(false, true) {
 		return nil, ErrWatcherAlreadyStarted
 	}
 
-	c := make(chan keyvalue.Record)
+	ctx, cancel := context.WithCancel(context.Background())
+	h.cancel = cancel
+
 	o := &options{}
 	for _, opt := range opts {
 		opt(o)
 	}
 	logger := o.logger
 
+	c := make(chan keyvalue.Record)
 	h.wg.Add(1)
 	go func() {
 		defer func() {
@@ -133,13 +137,14 @@ func (h *UVR31Handler) decode(b []byte) (keyvalue.Record, error) {
 	return r, nil
 }
 
-// Close blocks until the decoding goroutine has terminated.
+// Close stops the decoding goroutine and waits for it to terminate.
 // It is a no-op if Watch has never been called.
 func (h *UVR31Handler) Close() error {
 	if !h.watching.Load() {
 		return nil
 	}
 
+	h.cancel()
 	h.wg.Wait()
 	return nil
 }
