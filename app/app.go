@@ -22,15 +22,15 @@ import (
 	"strconv"
 	"sync"
 	"syscall"
-	dataloggerservice "tadl/app/service/collector"
-	"tadl/pkg/datalogger"
-	"tadl/pkg/dlbus"
 	"time"
 
 	"github.com/womat/golib/gpio"
 	"github.com/womat/golib/gpio/rpi"
 	"github.com/womat/golib/manchester/decoder"
 	"github.com/womat/golib/mqtt"
+	"github.com/womat/tadl/app/service/collector"
+	"github.com/womat/tadl/pkg/datalogger"
+	"github.com/womat/tadl/pkg/dlbus"
 )
 
 // VERSION holds the version information with the following logic in mind
@@ -74,7 +74,7 @@ type App struct {
 	dlbus *dlbus.Handler
 
 	datalogger        datalogger.DL
-	dataloggerService *dataloggerservice.Handler
+	dataloggerService *collector.Handler
 
 	mqtt *mqtt.Handler
 }
@@ -108,7 +108,7 @@ func (app *App) Run() (*App, error) {
 		return app, err
 	}
 
-	dlbusWatcher, err := app.dlbus.Watch(app.decoder.C)
+	dlbusWatcher, err := app.dlbus.Watch(app.decoder.Bits())
 	if err != nil {
 		slog.Error("Failed to start DL-Bus watcher", "error", err)
 		return app, err
@@ -127,8 +127,7 @@ func (app *App) Run() (*App, error) {
 	}
 	app.dataloggerService.Run(app.ctx, dataloggerWatcher, app.mqtt)
 	app.dataloggerService.StartPeriodicPublish(app.ctx, time.Duration(app.config.MQTT.PublishInterval)*time.Second, app.mqtt)
-	err = app.pin.WatchFunc(app.ctx,
-		gpio.RisingEdge|gpio.FallingEdge,
+	err = app.pin.WatchFunc(gpio.RisingEdge|gpio.FallingEdge,
 		func(evt gpio.Event) {
 			switch evt.Edge {
 			case gpio.RisingEdge:
@@ -191,9 +190,13 @@ func (app *App) Init() error {
 	}
 
 	// start manchaster decoder
-	app.decoder = decoder.New(app.decoderEvents,
+	app.decoder, err = decoder.New(app.decoderEvents,
 		app.config.DlBus.BitClock,
 		decoder.WithManchesterEncoding(decoder.IEEE))
+	if err != nil {
+		slog.Error("Failed to start Manchester decoder", "error", err)
+		return err
+	}
 
 	app.dlbus = dlbus.New()
 
@@ -209,7 +212,7 @@ func (app *App) Init() error {
 		slog.Error("Unsupported data logger", "type", t)
 		return fmt.Errorf("unsupported data logger type: %q", t)
 	}
-	app.dataloggerService = dataloggerservice.New(dataloggerservice.Config{
+	app.dataloggerService = collector.New(collector.Config{
 		PublishInterval: time.Duration(app.config.MQTT.PublishInterval) * time.Second,
 		MinDeltaTemp:    app.config.MQTT.MinDeltaTemp,
 		Topic:           app.config.MQTT.TopicPrefix,

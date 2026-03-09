@@ -5,7 +5,7 @@ package app
 import (
 	"net/http"
 
-	_ "tadl/docs"
+	_ "github.com/womat/tadl/docs"
 
 	httpSwagger "github.com/swaggo/http-swagger"
 )

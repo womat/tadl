@@ -3,9 +3,9 @@ package app
 
 import (
 	"net/http"
-	"tadl/app/service/health"
 
 	"github.com/womat/golib/web"
+	"github.com/womat/tadl/app/service/health"
 )
 
 // HandleHealth returns the current health data of the application.

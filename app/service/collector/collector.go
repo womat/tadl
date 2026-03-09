@@ -8,11 +8,11 @@ import (
 	"log/slog"
 	"math"
 	"sync"
-	"tadl/pkg/datalogger"
 	"time"
 
 	"github.com/womat/golib/keyvalue"
 	"github.com/womat/golib/mqtt"
+	"github.com/womat/tadl/pkg/datalogger"
 )
 
 var ErrUnsupportedFrameType = errors.New("unsupported frame type")

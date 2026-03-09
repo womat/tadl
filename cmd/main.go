@@ -13,10 +13,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"tadl/app"
 	"time"
 
 	"github.com/womat/golib/xlog"
+	"github.com/womat/tadl/app"
 	"gopkg.in/yaml.v3"
 )
 

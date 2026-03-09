@@ -1,11 +1,11 @@
-module tadl
+module github.com/womat/tadl
 
 go 1.25.0
 
 require (
 	github.com/swaggo/http-swagger v1.3.4
 	github.com/swaggo/swag v1.16.6
-	github.com/womat/golib v1.0.4
+	github.com/womat/golib v1.0.5
 	gopkg.in/yaml.v3 v3.0.1
 )
 
