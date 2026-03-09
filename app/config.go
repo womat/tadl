@@ -155,7 +155,7 @@ func (c *Config) Validate() error {
 	}
 
 	if c.DlBus.BounceTime < 0 {
-		return fmt.Errorf("BounceTime must be greater than 0, got %v", c.DlBus.BounceTime)
+		return fmt.Errorf("BounceTime must be non-negative, got %v", c.DlBus.BounceTime)
 	}
 
 	if c.DlBus.BitClock < 0 {

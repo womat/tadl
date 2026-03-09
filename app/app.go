@@ -1,8 +1,7 @@
 // Package app provides the main application.
 //
-// It initializes tadl, handles MQTT publishing, periodic backups,
-// web server startup, and OS signal handling for graceful shutdowns
-// or restarts.
+// It initializes tadl, handles MQTT publishing,
+// web server startup, and OS signal handling...
 //
 // Usage:
 //
@@ -23,7 +22,7 @@ import (
 	"strconv"
 	"sync"
 	"syscall"
-	dataloggerservice "tadl/app/service/dataloggerservice"
+	dataloggerservice "tadl/app/service/collector"
 	"tadl/pkg/datalogger"
 	"tadl/pkg/dlbus"
 	"time"
@@ -64,10 +63,10 @@ type App struct {
 	ctx        context.Context
 	cancelFunc context.CancelFunc
 
-	// gpio is the handler to the rpi gpio.
+	// pin is the GPIO input for the DL-Bus signal.
 	pin gpio.Pin
 
-	// decoder ist the handler of the manchester decoder
+	// decoder processes GPIO edge events into a Manchester-decoded bit stream.
 	decoder       *decoder.Decoder
 	decoderEvents chan decoder.Event
 
@@ -109,7 +108,7 @@ func (app *App) Run() (*App, error) {
 		return app, err
 	}
 
-	dlbusWatcher, err := app.dlbus.Watch(app.ctx, app.decoder.C)
+	dlbusWatcher, err := app.dlbus.Watch(app.decoder.C)
 	if err != nil {
 		slog.Error("Failed to start DL-Bus watcher", "error", err)
 		return app, err
@@ -121,7 +120,7 @@ func (app *App) Run() (*App, error) {
 		options = append(options, datalogger.WithLogger(slog.Default()))
 	}
 
-	dataloggerWatcher, err := app.datalogger.Watch(app.ctx, dlbusWatcher, options...)
+	dataloggerWatcher, err := app.datalogger.Watch(dlbusWatcher, options...)
 	if err != nil {
 		slog.Error("Failed to start data logger watcher", "error", err)
 		return app, err
@@ -165,9 +164,8 @@ func (app *App) Run() (*App, error) {
 // Init prepares the application:
 // - initialize serives
 // - initializes API routes
-func (app *App) Init() (err error) {
-
-	app.decoderEvents = make(chan decoder.Event, 1024)
+func (app *App) Init() error {
+	var err error
 
 	if app.mqtt, err = mqtt.New(app.config.MQTT.Connection, MODULE,
 		mqtt.WithOnConnected(func() {}),
@@ -212,7 +210,7 @@ func (app *App) Init() (err error) {
 		return fmt.Errorf("unsupported data logger type: %q", t)
 	}
 	app.dataloggerService = dataloggerservice.New(dataloggerservice.Config{
-		PublishInterval: time.Duration(app.config.MQTT.PublishInterval) * time.Microsecond,
+		PublishInterval: time.Duration(app.config.MQTT.PublishInterval) * time.Second,
 		MinDeltaTemp:    app.config.MQTT.MinDeltaTemp,
 		Topic:           app.config.MQTT.TopicPrefix,
 		Retained:        app.config.MQTT.Retained,
@@ -299,25 +297,24 @@ func (app *App) shutdownProcedure(mode int) {
 
 }
 
-// Cleanup releases application resources.
-// It's called when the application is shutdown or restarted.
-// Should be used to free up resources.
+// Cleanup releases all application resources in the correct order.
+// It is called on shutdown and restart, after the context has been cancelled
+// and the web server has stopped.
 func (app *App) Cleanup() error {
 	var errs error
 
-	// here cleanup your service
-	slog.Info("Stopt watching GPIO pin", "gpio", app.config.DlBus.GPIO)
+	slog.Info("Stopping GPIO watch", "gpio", app.config.DlBus.GPIO)
 	if err := app.pin.StopWatching(); err != nil {
 		errs = errors.Join(errs, err)
 	}
 
-	slog.Info("Stopping periodic MQTT publish")
-	if err := app.datalogger.Close(); err != nil {
+	slog.Info("Closing DL-Bus decoder")
+	if err := app.dlbus.Close(); err != nil {
 		errs = errors.Join(errs, err)
 	}
 
 	slog.Info("Closing data logger")
-	if err := app.dlbus.Close(); err != nil {
+	if err := app.datalogger.Close(); err != nil {
 		errs = errors.Join(errs, err)
 	}
 

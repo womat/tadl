@@ -4,7 +4,7 @@
 // - Public routes without authentication (e.g., version)
 // - Protected routes requiring API key or JWT
 // - Swagger documentation (only in development) at /swagger/
-// - Health, Live, Ready, Monitoring, and tadl data endpoints
+// - Health, Version, and data endpoints
 //
 // Middleware applied:
 // - CORS

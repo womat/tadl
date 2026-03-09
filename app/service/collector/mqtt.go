@@ -1,5 +1,6 @@
-// Package dataloggerservice provides MQTT publishing for datalogger frames.
-package dataloggerservice
+// Package collector processes decoded datalogger frames,
+// detects significant changes, and publishes measurements via MQTT.
+package collector
 
 import (
 	"context"

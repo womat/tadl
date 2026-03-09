@@ -1,4 +1,6 @@
-package dataloggerservice
+// Package collector processes decoded datalogger frames,
+// detects significant changes, and publishes measurements via MQTT.
+package collector
 
 import (
 	"context"
@@ -53,12 +55,11 @@ func (h *Handler) Run(ctx context.Context, rx <-chan keyvalue.Record, mqtt *mqtt
 					return
 				}
 
-				// Evaluate under lock, then release before publishing.
+				// checkAndUpdate stores the frame and reports whether it should be published.
 				changed, err := h.checkAndUpdate(f)
 
 				if err != nil {
 					slog.Error("Failed to validate measurements", "err", err)
-					h.mux.Unlock()
 					continue
 				}
 
