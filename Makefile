@@ -69,6 +69,10 @@ build_arm7: ## build binary for raspberry models 2/3/4/5/Zero2 32bit
 	GOOS=linux GOARCH=arm GOARM=7 \
 	go build -ldflags "$(LDFLAGS)" -o ./bin/arm7/${BINARY_NAME} ./cmd/main.go
 
+build_arm8: ## build binary for raspberry models 3/4/5/Zero2 32bit
+	GOOS=linux GOARCH=arm GOARM=8 \
+	go build -ldflags "$(LDFLAGS)" -o ./bin/arm7/${BINARY_NAME} ./cmd/main.go
+
 build_arm64: ## build binary for raspberry models 3/4/5/Zero2 64bit
 	GOOS=linux GOARCH=arm64 \
 	go build -ldflags "$(LDFLAGS)" -o ./bin/arm64/${BINARY_NAME} ./cmd/main.go
