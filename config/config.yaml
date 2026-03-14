@@ -14,7 +14,6 @@ logDestination: stdout
 # environment: dev | prod
 env: dev
 
-
 # =============================================================================
 # Webserver configuration (HTTPS)
 # =============================================================================
@@ -54,7 +53,6 @@ webserver:
 datalogger:
   # Supported types: uvr42
   type: uvr42
-
 
 # =============================================================================
 # DL-Bus configuration

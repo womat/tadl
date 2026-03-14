@@ -19,22 +19,41 @@ exposes the data via a secured HTTPS REST API, and publishes it to an MQTT broke
 
 ---
 
+## Project overview
+
+- HTTPS REST API for relay control and health checks
+- Config-driven relay registration from `config/config.yaml`
+- Graceful shutdown and `SIGHUP`-based reloads
+- Optional Swagger UI via the `swagger` build tag
+
+---
+
+## Where to start
+
+- Runtime, API, build, deploy, and Swagger usage: [`cmd/README.md`](cmd/README.md)
+- Example configuration: [`config/config.yaml`](config/config.yaml)
+- Swagger generation script: [`docs/generate.sh`](docs/generate.sh)
+
+---
+
 ## Supported Devices
 
 | Device | ID   | Temperatures | Outputs |
-|--------|------|-------------|---------|
-| UVR42  | 0x10 | 4           | 2       |
-| UVR31  | 0x30 | 3           | 1       |
+|--------|------|--------------|---------|
+| UVR42  | 0x10 | 4            | 2       |
+| UVR31  | 0x30 | 3            | 1       |
 
 ---
 
 ## API Endpoints
 
-| Method | Path       | Auth     | Description                        |
-|--------|------------|----------|------------------------------------|
-| GET    | `/version` | —        | Application name and version       |
-| GET    | `/health`  | API Key  | Runtime metrics (memory, uptime …) |
-| GET    | `/data`    | API Key  | Latest sensor readings             |
+| Method | Path       | Auth    | Description                        |
+|--------|------------|---------|------------------------------------|
+| GET    | `/version` | —       | Application name and version       |
+| GET    | `/health`  | API Key | Runtime metrics (memory, uptime …) |
+| GET    | `/data`    | API Key | Latest sensor readings             |
+
+Authentication via the `X-API-Key` header.
 
 ### Examples
 
@@ -53,13 +72,13 @@ curl -k -H "X-Api-Key: your-api-key" https://localhost:8443/health
 
 ## Command-Line Flags
 
-| Flag        | Default                        | Description                                       |
-|-------------|--------------------------------|---------------------------------------------------|
-| `--config`  | `/opt/tadl/etc/config.yaml`    | Path to the configuration file                    |
-| `--debug`   | `false`                        | Enable debug logging to stdout (overrides config) |
-| `--version` | `false`                        | Print the application version and exit            |
-| `--about`   | `false`                        | Print application details and exit                |
-| `--help`    | `false`                        | Print this help message and exit                  |
+| Flag        | Default                     | Description                                       |
+|-------------|-----------------------------|---------------------------------------------------|
+| `--config`  | `/opt/tadl/etc/config.yaml` | Path to the configuration file                    |
+| `--debug`   | `false`                     | Enable debug logging to stdout (overrides config) |
+| `--version` | `false`                     | Print the application version and exit            |
+| `--about`   | `false`                     | Print application details and exit                |
+| `--help`    | `false`                     | Print this help message and exit                  |
 
 The config file path can also be set via the environment variable `CONFIG_FILE`.
 
@@ -75,42 +94,101 @@ CONFIG_FILE=/etc/tadl/config.yaml tadl
 ## Configuration
 
 Default location: `/opt/tadl/etc/config.yaml`
+Environment variables are expanded inside the file, e.g. `apiKey: ${TADL_API_KEY}`.
+
 
 ```yaml
-# Log level: debug | info | warn | error
+# logLevel defines the minimum log level.
+# Messages with at least this level are logged.
+# Allowed values: debug | info | warn | error
 logLevel: info
 
-# Log destination: stdout | stderr | /path/to/logfile
+# logDestination defines where logs are written to.
+# Supported values: stdout | stderr | /path/to/logfile
 logDestination: stdout
 
-# Environment: dev | prod
+# environment: dev | prod
 env: dev
 
+# =============================================================================
+# Webserver configuration (HTTPS)
+# =============================================================================
 webserver:
+  # Host address the HTTPS server listens on (0.0.0.0 = all interfaces)
   listenHost: 0.0.0.0
-  listenPort: 8443
-  apiKey: changeme!
-  keyFile: /opt/tadl/etc/key.pem
-  certFile: /opt/tadl/etc/cert.pem
-  blockedIPs: []
-  allowedIPs: []
 
+  # Port the HTTPS server listens on
+  listenPort: 8443
+
+  # Global API key for protected endpoints
+  apiKey: changeme!
+
+  # TLS private key file
+  keyFile: /opt/tadl/etc/key.pem
+
+  # TLS certificate file
+  certFile: /opt/tadl/etc/cert.pem
+
+  # Blocked IP addresses or networks (empty = none blocked)
+  # Examples: 192.168.0.1, 192.168.0.0/16, 10.0.0.0/8
+  blockedIPs: [ ]
+  #  - 192.168.0.1
+  #  - 192.168.0.0/16
+
+  # Allowed IP addresses or networks (empty = all allowed)
+  # Note: ::1 is the IPv6 loopback address
+  # Examples: 127.0.0.1, ::1, 192.168.0.0/16
+  allowedIPs: [ ]
+  #  - 127.0.0.1
+  #  - ::1
+  #  - 192.168.0.0/16
+
+# =============================================================================
+# Datalogger configuration
+# =============================================================================
 datalogger:
-  # Supported types: uvr42 | uvr31
+  # Supported types: uvr42
   type: uvr42
 
-dlbus:
-  gpio: 4                  # BCM GPIO pin number
-  bounceTime: 0            # Debounce in ms (0 = disabled)
-  gpioTermination: pullup  # pullup | pulldown | none
-  bitClock: 50             # Bit clock in Hz (0 = auto-detect)
 
+# =============================================================================
+# DL-Bus configuration
+# =============================================================================
+dlbus:
+  # GPIO input pin for DL-Bus signal
+  gpio: 4
+
+  # Debounce period in milliseconds (0 = disabled)
+  bounceTime: 0
+
+  # GPIO line termination
+  # Supported values: pullup | pulldown | none
+  gpioTermination: none
+
+  # DL-Bus bit clock frequency in Hz (used for timing), 0 = auto-detect
+  bitClock: 50
+
+# =============================================================================
+# MQTT configuration
+# =============================================================================
 mqtt:
-  connection: "tcp://broker.example.com:1883"  # empty = disabled
+  # Broker connection string (empty = MQTT disabled)
+  # Format: tcp://host:port
+  connection: "tcp://localhost:1883"
+
+  # Retain messages on the broker
   retained: false
-  topicPrefix: home/uvr42
-  publishInterval: 60      # seconds
-  minDeltaTemp: 0.5        # minimum °C change to trigger publish
+
+  # MQTT topic prefix to publish measurements to
+  topicPrefix: test/uvr42
+
+  # Publish interval in seconds
+  # 0 = publish only on change (see minDeltaTemp)
+  publishInterval: 60
+
+  # Minimum temperature delta in Celsius to trigger a publish
+  # 0 = publish only by interval (see publishInterval)
+  minDeltaTemp: 0.5
 ```
 
 ---
@@ -127,6 +205,20 @@ openssl req -x509 -nodes -newkey rsa:2048 \
   -days 825 \
   -subj "/C=AT/ST=Vienna/L=Vienna/O=MyOrg/CN=localhost"
 ```
+
+**Subject fields:**
+
+| Field           | Example             | Description                                  |
+|-----------------|---------------------|----------------------------------------------|
+| `/C`            | `AT`                | Country code (2 letters)                     |
+| `/ST`           | `Vienna`            | State or province (optional)                 |
+| `/L`            | `Vienna`            | City (optional)                              |
+| `/O`            | `MyCompany`         | Organization (optional)                      |
+| `/OU`           | `DEV`               | Organizational unit (optional)               |
+| `/CN`           | `localhost`         | **Common Name — your domain or `localhost`** |
+| `/emailAddress` | `admin@example.com` | E-mail address (optional)                    |
+
+> **Note:** Browsers enforce a maximum certificate validity of 825 days. Use `-days 365` for production-like setups.
 
 ---
 
@@ -145,10 +237,10 @@ sudo chown -R tadl:tadl /opt/tadl
 ### 2. Copy files
 
 ```sh
-sudo cp tadl              /opt/tadl/bin/
-sudo cp config.yaml       /opt/tadl/etc/
-sudo cp cert.pem key.pem  /opt/tadl/etc/
-sudo chown -R tadl:tadl   /opt/tadl
+sudo cp tadl /opt/tadl/bin/
+sudo cp config.yaml /opt/tadl/etc/
+sudo cp cert.pem key.pem /opt/tadl/etc/
+sudo chown -R tadl:tadl /opt/tadl
 ```
 
 ### 3. Create systemd service
@@ -241,6 +333,6 @@ sudo systemctl restart tadl
 
 ---
 
-## License
+# License
 
-GNU General Public License v3.0 — see [LICENSE](LICENSE) for details.
+MIT
