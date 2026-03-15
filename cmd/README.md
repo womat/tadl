@@ -6,15 +6,23 @@ Reads sensor data from UVR31/UVR42 heating controllers via the DL-Bus protocol o
 exposes the data via a secured HTTPS REST API, and publishes it to an MQTT broker.
 ---
 
+## Usage
+
+```text
+tadl [--config FILE] [--debug] [--version] [--about] [--help]
+```
+
+---
+
 ## Command-Line Flags
 
-| Flag        | Default                        | Description                                                         |
-|-------------|--------------------------------|---------------------------------------------------------------------|
-| `--config`  | `/opt/tadl/etc/config.yaml`    | Path to the configuration file                                      |
-| `--debug`   | `false`                        | Enable debug logging to stdout (overrides log settings from config) |
-| `--version` | `false`                        | Print the application version and exit                              |
-| `--about`   | `false`                        | Print application details and exit                                  |
-| `--help`    | `false`                        | Print this help message and exit                                    |
+| Flag        | Default                     | Description                                                         |
+|-------------|-----------------------------|---------------------------------------------------------------------|
+| `--config`  | `/opt/tadl/etc/config.yaml` | Path to the configuration file                                      |
+| `--debug`   | `false`                     | Enable debug logging to stdout (overrides log settings from config) |
+| `--version` | `false`                     | Print the application version and exit                              |
+| `--about`   | `false`                     | Print application details and exit                                  |
+| `--help`    | `false`                     | Print this help message and exit                                    |
 
 The config file path can also be set via the environment variable `CONFIG_FILE`.
 

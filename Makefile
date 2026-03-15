@@ -4,6 +4,9 @@ GOCMD=go
 GOTEST=$(GOCMD) test
 GOVET=$(GOCMD) vet
 BINARY_NAME=tadl
+DEV_CERT_DIR=./app/certs
+DEV_CERT_FILE=$(DEV_CERT_DIR)/dev_cert.pem
+DEV_KEY_FILE=$(DEV_CERT_DIR)/dev_key.pem
 VERSION?=0.0.0
 SERVICE_PORT?=3000
 DOCKER_REGISTRY?= #if set it should finished by /
@@ -27,7 +30,7 @@ BUILD_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown"
 LDFLAGS := -X 'main.buildDate=$(BUILD_DATE)' \
            -X 'main.buildCommit=$(BUILD_COMMIT)'
 
-.PHONY: all test build vendor copy build_dev build_arm6 build_arm7 build_arm64 build_windows386 build_windows64 build_linux386 build_linux64 build_mac_arm64 deploy clean help
+.PHONY: all test build vendor copy build_dev build_arm6 build_arm7 build_arm64 build_windows386 build_windows64 build_linux386 build_linux64 build_mac_arm64 deploy clean help ensure_dev_certs
 
 all: help
 
@@ -40,6 +43,16 @@ clean: ## Remove build related file
 	rm -fr ./bin/darwin
 	rm -fr ./bin/386
 
+ensure_dev_certs:
+	@mkdir -p $(DEV_CERT_DIR)
+	@if [ ! -f "$(DEV_CERT_FILE)" ] || [ ! -f "$(DEV_KEY_FILE)" ]; then \
+		echo "Generating development TLS certificate in $(DEV_CERT_DIR)"; \
+		openssl req -x509 -nodes -newkey rsa:2048 \
+			-keyout "$(DEV_KEY_FILE)" \
+			-out "$(DEV_CERT_FILE)" \
+			-days 365 \
+			-subj "/C=AT/ST=Vienna/L=Vienna/O=modbusgateway/OU=Development/CN=localhost"; \
+	fi
 
 
 # ==================================================================================================================
@@ -57,43 +70,43 @@ clean: ## Remove build related file
 # ==================================================================================================================
 
 
-build_arm64_dev: ## build binary for raspberry models 3/4/5/Zero2 64bit with Swagger UI
+build_arm64_dev: ensure_dev_certs ## build binary for raspberry models 3/4/5/Zero2 64bit with Swagger UI
 	GOOS=linux GOARCH=arm64 \
 	go build -tags swagger -ldflags "$(LDFLAGS)" -o ./bin/arm64/${BINARY_NAME} ./cmd/main.go
 
-build_arm6: ## build binary for all raspberry models 32bit except Pi5
+build_arm6: ensure_dev_certs ## build binary for all raspberry models 32bit except Pi5
 	GOOS=linux GOARCH=arm GOARM=6 \
 	go build -ldflags "$(LDFLAGS)" -o ./bin/arm6/${BINARY_NAME} ./cmd/main.go
 
-build_arm7: ## build binary for raspberry models 2/3/4/5/Zero2 32bit
+build_arm7: ensure_dev_certs ## build binary for raspberry models 2/3/4/5/Zero2 32bit
 	GOOS=linux GOARCH=arm GOARM=7 \
 	go build -ldflags "$(LDFLAGS)" -o ./bin/arm7/${BINARY_NAME} ./cmd/main.go
 
-build_arm8: ## build binary for raspberry models 3/4/5/Zero2 32bit
-	GOOS=linux GOARCH=arm GOARM=8 \
-	go build -ldflags "$(LDFLAGS)" -o ./bin/arm7/${BINARY_NAME} ./cmd/main.go
+build_arm8: ensure_dev_certs ## build binary for raspberry models 3/4/5/Zero2 32bit
+	GOOS=linux GOARCH=arm GOARM=7 \
+	go build -ldflags "$(LDFLAGS)" -o ./bin/arm8/${BINARY_NAME} ./cmd/main.go
 
-build_arm64: ## build binary for raspberry models 3/4/5/Zero2 64bit
+build_arm64: ensure_dev_certs ## build binary for raspberry models 3/4/5/Zero2 64bit
 	GOOS=linux GOARCH=arm64 \
 	go build -ldflags "$(LDFLAGS)" -o ./bin/arm64/${BINARY_NAME} ./cmd/main.go
 
-build_windows386: ## build binary for windows
+build_windows386: ensure_dev_certs ## build binary for windows
 	GOOS=windows GOARCH=386 \
 	go build -ldflags "$(LDFLAGS)" -o ./bin/386/${BINARY_NAME}.exe ./cmd/main.go
 
-build_windows64: ## build binary for windows 64bit
+build_windows64: ensure_dev_certs ## build binary for windows 64bit
 	GOOS=windows GOARCH=amd64 \
 	go build -ldflags "$(LDFLAGS)" -o ./bin/amd64/${BINARY_NAME}.exe ./cmd/main.go
 
-build_linux386: ## build binary for linux
+build_linux386: ensure_dev_certs ## build binary for linux
 	GOOS=linux GOARCH=386 \
 	go build -ldflags "$(LDFLAGS)" -o ./bin/386/${BINARY_NAME} ./cmd/main.go
 
-build_linux64: ## build binary for linux 64bit
+build_linux64: ensure_dev_certs ## build binary for linux 64bit
 	GOOS=linux GOARCH=amd64 \
 	go build -ldflags "$(LDFLAGS)" -o ./bin/amd64/${BINARY_NAME} ./cmd/main.go
 
-build_mac_arm64: ## build binary mac M1
+build_mac_arm64: ensure_dev_certs ## build binary mac M1
 	GOOS=darwin GOARCH=arm64 \
 	go build -ldflags "$(LDFLAGS)" -o ./bin/darwin/${BINARY_NAME} ./cmd/main.go
 

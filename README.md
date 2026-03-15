@@ -11,20 +11,11 @@ exposes the data via a secured HTTPS REST API, and publishes it to an MQTT broke
 
 - Decodes DL-Bus frames from **UVR31** and **UVR42** controllers
 - Publishes measurements to an **MQTT broker** (configurable interval + delta trigger)
-- Exposes a secured **HTTPS REST API** (API key or JWT authentication)
+- Exposes a secured **HTTPS REST API** (API key authentication)
 - **IP allowlist / blocklist** support
 - **Hot-reload** of configuration via `SIGHUP`
 - Embedded self-signed TLS certificate for development (no setup required)
 - Optional **Swagger UI** (build tag `swagger`, dev only)
-
----
-
-## Project overview
-
-- HTTPS REST API for relay control and health checks
-- Config-driven relay registration from `config/config.yaml`
-- Graceful shutdown and `SIGHUP`-based reloads
-- Optional Swagger UI via the `swagger` build tag
 
 ---
 
@@ -94,8 +85,8 @@ CONFIG_FILE=/etc/tadl/config.yaml tadl
 ## Configuration
 
 Default location: `/opt/tadl/etc/config.yaml`
-Environment variables are expanded inside the file, e.g. `apiKey: ${TADL_API_KEY}`.
 
+Environment variables are expanded inside the file, e.g. `apiKey: ${TADL_API_KEY}`.
 
 ```yaml
 # logLevel defines the minimum log level.
