@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -40,18 +41,18 @@ type WebserverConfig struct {
 }
 
 type MQTTConfig struct {
-	Connection      string  `yaml:"connection"`      // Broker connection string
-	Retained        bool    `yaml:"retained"`        // Whether messages are retained
-	PublishInterval int     `yaml:"publishInterval"` // publish interval in seconds
-	TopicPrefix     string  `yaml:"topicPrefix"`     // MQTT topic prefix for meter data
-	MinDeltaTemp    float64 `yaml:"minDeltaTemp"`    // Minimum temperature change in Kelvin to trigger an update
+	Connection      string        `yaml:"connection"`      // Broker connection string
+	Retained        bool          `yaml:"retained"`        // Whether messages are retained
+	PublishInterval time.Duration `yaml:"publishInterval"` // publish interval in Go duration string (e.g. "60s")
+	TopicPrefix     string        `yaml:"topicPrefix"`     // MQTT topic prefix for meter data
+	MinDeltaTemp    float64       `yaml:"minDeltaTemp"`    // Minimum temperature change in Kelvin to trigger an update
 }
 
 type DlBusConfig struct {
-	GPIO            int    `yaml:"gpio"`            // GPIO pin for DL-Bus input
-	BounceTime      int    `yaml:"bounceTime"`      // Debounce in ms
-	GPIOTermination string `yaml:"gpioTermination"` // Termination type for GPIO (e.g. "pullup", "pulldown", "none")
-	BitClock        int    `yaml:"bitClock"`        // DL-Bus bit clock frequency in Hz (used for timing), 0 = auto-detect
+	GPIO            int           `yaml:"gpio"`            // GPIO pin for DL-Bus input
+	DebounceTime    time.Duration `yaml:"debounceTime"`    // Debounce duration (e.g. "100ms"), 0 = disabled
+	GPIOTermination string        `yaml:"gpioTermination"` // Termination type for GPIO (e.g. "pullup", "pulldown", "none")
+	BitClock        int           `yaml:"bitClock"`        // DL-Bus bit clock frequency in Hz (used for timing), 0 = auto-detect
 }
 
 type DataLoggerConfig struct {
@@ -72,10 +73,10 @@ func NewConfig() *Config {
 		},
 		MQTT: MQTTConfig{
 			Connection:      "", // e.g. "tcp://mqtt.example.com:1883", empty means MQTT is disabled
-			PublishInterval: 10,
+			PublishInterval: 10 * time.Second,
 		},
 		DlBus: DlBusConfig{
-			BounceTime:      0,
+			DebounceTime:    0,
 			GPIOTermination: "pullup",
 		},
 		DataLogger: DataLoggerConfig{
@@ -137,8 +138,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid port: %d", c.Webserver.ListenPort)
 	}
 
-	if c.MQTT.PublishInterval <= 0 {
-		return fmt.Errorf("dataCollectionInterval must be greater than 0, got %v", c.MQTT.PublishInterval)
+	if c.MQTT.PublishInterval < time.Second {
+		return fmt.Errorf("dataCollectionInterval must be greater than 1s, got %v", c.MQTT.PublishInterval)
 	}
 
 	if c.MQTT.TopicPrefix == "" {
@@ -154,8 +155,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid gpio pin: %d, must be a valid Raspberry Pi BCM GPIO", c.DlBus.GPIO)
 	}
 
-	if c.DlBus.BounceTime < 0 {
-		return fmt.Errorf("BounceTime must be non-negative, got %v", c.DlBus.BounceTime)
+	if c.DlBus.DebounceTime < 0 {
+		return fmt.Errorf("DebounceTime must be non-negative, got %v", c.DlBus.DebounceTime)
 	}
 
 	if c.DlBus.BitClock < 0 {

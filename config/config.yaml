@@ -61,8 +61,8 @@ dlbus:
   # GPIO input pin for DL-Bus signal
   gpio: 4
 
-  # Debounce period in milliseconds (0 = disabled)
-  bounceTime: 0
+  # Debounce period as Go duration string  (e.g. 5ms, 0 = disabled)
+  debounceTime: 0
 
   # GPIO line termination
   # Supported values: pullup | pulldown | none
@@ -85,9 +85,9 @@ mqtt:
   # MQTT topic prefix to publish measurements to
   topicPrefix: test/uvr42
 
-  # Publish interval in seconds
+  # Publish interval as Go duration string  (e.g. 60s)
   # 0 = publish only on change (see minDeltaTemp)
-  publishInterval: 60
+  publishInterval: 60s
 
   # Minimum temperature delta in Celsius to trigger a publish
   # 0 = publish only by interval (see publishInterval)

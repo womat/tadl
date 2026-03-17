@@ -22,7 +22,6 @@ import (
 	"strconv"
 	"sync"
 	"syscall"
-	"time"
 
 	"github.com/womat/golib/gpio"
 	"github.com/womat/golib/gpio/rpi"
@@ -126,7 +125,7 @@ func (app *App) Run() (*App, error) {
 		return app, err
 	}
 	app.dataloggerService.Run(app.ctx, dataloggerWatcher, app.mqtt)
-	app.dataloggerService.StartPeriodicPublish(app.ctx, time.Duration(app.config.MQTT.PublishInterval)*time.Second, app.mqtt)
+	app.dataloggerService.StartPeriodicPublish(app.ctx, app.config.MQTT.PublishInterval, app.mqtt)
 	err = app.pin.WatchFunc(gpio.RisingEdge|gpio.FallingEdge,
 		func(evt gpio.Event) {
 			switch evt.Edge {
@@ -175,7 +174,7 @@ func (app *App) Init() error {
 
 	options := []rpi.Option{
 		rpi.WithMode(gpio.Input),
-		rpi.WithDebounce(time.Duration(app.config.DlBus.BounceTime) * time.Millisecond)}
+		rpi.WithDebounce(app.config.DlBus.DebounceTime)}
 
 	switch app.config.DlBus.GPIOTermination {
 	case "pullup":
@@ -213,7 +212,7 @@ func (app *App) Init() error {
 		return fmt.Errorf("unsupported data logger type: %q", t)
 	}
 	app.dataloggerService = collector.New(collector.Config{
-		PublishInterval: time.Duration(app.config.MQTT.PublishInterval) * time.Second,
+		PublishInterval: app.config.MQTT.PublishInterval,
 		MinDeltaTemp:    app.config.MQTT.MinDeltaTemp,
 		Topic:           app.config.MQTT.TopicPrefix,
 		Retained:        app.config.MQTT.Retained,
