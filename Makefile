@@ -30,7 +30,7 @@ BUILD_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown"
 LDFLAGS := -X 'main.buildDate=$(BUILD_DATE)' \
            -X 'main.buildCommit=$(BUILD_COMMIT)'
 
-.PHONY: all test build vendor copy build_dev build_arm6 build_arm7 build_arm64 build_windows386 build_windows64 build_linux386 build_linux64 build_mac_arm64 deploy clean help ensure_dev_certs
+.PHONY: all test build vendor copy build_dev build_arm6 build_arm7 build_arm64 build_windows386 build_windows64 build_linux386 build_linux64 build_mac_arm64 build_sim_arm64 deploy deploy_sim clean help ensure_dev_certs
 
 all: help
 
@@ -90,6 +90,10 @@ build_arm64: ensure_dev_certs ## build binary for raspberry models 3/4/5/Zero2 6
 	GOOS=linux GOARCH=arm64 \
 	go build -ldflags "$(LDFLAGS)" -o ./bin/arm64/${BINARY_NAME} ./cmd/main.go
 
+build_sim_arm64: ## build the DL-Bus emulator dlbussim for raspberry models 3/4/5/Zero2 64bit
+	GOOS=linux GOARCH=arm64 \
+	go build -o ./bin/arm64/dlbussim ./cmd/dlbussim
+
 build_windows386: ensure_dev_certs ## build binary for windows
 	GOOS=windows GOARCH=386 \
 	go build -ldflags "$(LDFLAGS)" -o ./bin/386/${BINARY_NAME}.exe ./cmd/main.go
@@ -114,6 +118,10 @@ build_mac_arm64: ensure_dev_certs ## build binary mac M1
 deploy: build_arm64 ## build binary and copy binary to ${TARGET_NODE}:/tmp
 	@echo "Copying binary to  $(PI_USER)@$(PI_HOST):$(PI_PATH)"
 	scp ./bin/arm64/${BINARY_NAME} $(PI_USER)@$(PI_HOST):$(PI_PATH)
+
+deploy_sim: build_sim_arm64 ## build the DL-Bus emulator and copy it to $(PI_USER)@$(PI_HOST):$(PI_PATH)
+	@echo "Copying dlbussim to  $(PI_USER)@$(PI_HOST):$(PI_PATH)"
+	scp ./bin/arm64/dlbussim $(PI_USER)@$(PI_HOST):$(PI_PATH)
 
 deploy_dev: build_arm64_dev ## build binary and copy binary to ${TARGET_NODE}:/tmp
 	@echo "Copying binary to  $(PI_USER)@$(PI_HOST):$(PI_PATH)"

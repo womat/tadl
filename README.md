@@ -10,6 +10,8 @@ exposes the data via a secured HTTPS REST API, and publishes it to an MQTT broke
 ## Features
 
 - Decodes DL-Bus frames from **UVR31** and **UVR42** controllers
+- Reads any **bit rate** without configuration: the Manchester decoder recovers the controller's
+  clock and follows it, and the **line polarity** (an optocoupler inverts it) is detected at the SYNC
 - Publishes measurements to an **MQTT broker** (configurable interval + delta trigger)
 - Exposes a secured **HTTPS REST API** (API key authentication)
 - **IP allowlist / blocklist** support
@@ -33,6 +35,11 @@ exposes the data via a secured HTTPS REST API, and publishes it to an MQTT broke
 |--------|------|--------------|---------|
 | UVR42  | 0x10 | 4            | 2       |
 | UVR31  | 0x30 | 3            | 1       |
+
+The protocol is described in Technische Alternative's
+[DL-Bus protocol description v1.7](https://www.mikrocontroller.net/attachment/646125/DL-Bus_Protokoll_v1.7.pdf)
+(German): Manchester code, a SYNC of 16 high bits, bytes with start and stop bit, LSB first, and the
+frame layout of every controller.
 
 ---
 
@@ -150,14 +157,21 @@ dlbus:
   gpio: 4
 
   # Debounce period as Go duration string  (e.g. 5ms, 0 = disabled)
-  debounceTime: 0
+  # Keep 0: the kernel rounds the debounce up to its timer tick (4-10ms on a
+  # Raspberry Pi) and then swallows the edges of short half-bits.
+  debounceTime: 0s
 
   # GPIO line termination
   # Supported values: pullup | pulldown | none
   gpioTermination: none
 
-  # DL-Bus bit clock frequency in Hz (used for timing), 0 = auto-detect
-  bitClock: 50
+  # DL-Bus bit clock in Hz, 0 = recover it from the signal (recommended).
+  # With 0 tadl reads any controller whatever its bit rate (UVR31/UVR42: 50 Hz,
+  # UVR1611/UVR61-3/ESR21: 488 Hz) and follows a controller whose clock is off
+  # or drifts. A fixed value must match the controller within 25 %.
+  # The line polarity needs no setting either: an optocoupler inverts the
+  # signal, and tadl detects that at the SYNC of every frame.
+  bitClock: 0
 
 # =============================================================================
 # MQTT configuration
@@ -285,6 +299,28 @@ make build_arm64_dev
 # Build and deploy to Raspberry Pi via SCP
 make deploy
 ```
+
+---
+
+## Testing without a controller
+
+`cmd/dlbussim` emulates a controller: it drives a GPIO pin with DL-Bus frames back to back,
+Manchester-encoded, with values and timing set by flags. Connect that pin to tadl's input — directly,
+or through the optocoupler a real bus would use — and point tadl's `dlbus.gpio` at the input.
+
+```sh
+make deploy_sim                                    # build for arm64 and copy to the Pi
+
+# on the Pi, e.g. GPIO21 drives an optocoupler whose output is GPIO20 (tadl: gpio 20)
+./dlbussim -gpio 21 -temps 21.5,45.3,-7.2,0 -out1  # UVR42 at 50 Hz
+./dlbussim -gpio 21 -offset 5                      # a controller whose clock is 5 % fast
+./dlbussim -gpio 21 -bitClock 488 -frames 20       # 488 Hz, twenty frames
+./dlbussim -type uvr31 -temps 20,30,40             # UVR31
+```
+
+`GET /data` then shows the values sent. The tests in `pkg/dlbus` run the same chain without
+hardware: golib's encoder, a virtual line (also inverted, with the clock 5 % off), the decoder
+without a bit clock, the DL-Bus handler and the data logger.
 
 ---
 
