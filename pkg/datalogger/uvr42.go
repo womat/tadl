@@ -54,7 +54,9 @@ func (h *UVR42Handler) Watch(rx <-chan []byte, opts ...Option) (<-chan keyvalue.
 	}
 	logger := o.logger
 
-	c := make(chan keyvalue.Record)
+	// Buffered like the DL-Bus frames: the reader may be busy publishing, and
+	// an unbuffered channel would drop every record that arrives meanwhile.
+	c := make(chan keyvalue.Record, 10)
 	h.wg.Add(1)
 	go func() {
 		defer func() {
