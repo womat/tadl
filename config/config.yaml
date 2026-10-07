@@ -62,14 +62,21 @@ dlbus:
   gpio: 4
 
   # Debounce period as Go duration string  (e.g. 5ms, 0 = disabled)
-  debounceTime: 0
+  # Keep 0: the kernel rounds the debounce up to its timer tick (4-10ms on a
+  # Raspberry Pi) and then swallows the edges of short half-bits.
+  debounceTime: 0s
 
   # GPIO line termination
   # Supported values: pullup | pulldown | none
   gpioTermination: none
 
-  # DL-Bus bit clock frequency in Hz (used for timing), 0 = auto-detect
-  bitClock: 50
+  # DL-Bus bit clock in Hz, 0 = recover it from the signal (recommended).
+  # With 0 tadl reads any controller whatever its bit rate (UVR31/UVR42: 50 Hz,
+  # UVR1611/UVR61-3/ESR21: 488 Hz) and follows a controller whose clock is off
+  # or drifts. A fixed value must match the controller within 25 %.
+  # The line polarity needs no setting either: an optocoupler inverts the
+  # signal, and tadl detects that at the SYNC of every frame.
+  bitClock: 0
 
 # =============================================================================
 # MQTT configuration

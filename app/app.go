@@ -126,15 +126,25 @@ func (app *App) Run() (*App, error) {
 	}
 	app.dataloggerService.Run(app.ctx, dataloggerWatcher, app.mqtt)
 	app.dataloggerService.StartPeriodicPublish(app.ctx, app.config.MQTT.PublishInterval, app.mqtt)
+	// Edges the decoder had no room for. They are reported with the next edge
+	// that gets through, so the decoder does not take the interval across them
+	// for a bit period. Only the GPIO callback touches it.
+	var missed uint64
 	err = app.pin.WatchFunc(gpio.RisingEdge|gpio.FallingEdge,
 		func(evt gpio.Event) {
-			switch evt.Edge {
-			case gpio.RisingEdge:
-				app.decoderEvents <- decoder.Event{Edge: decoder.RisingEdge, Time: evt.Time}
-			case gpio.FallingEdge:
-				app.decoderEvents <- decoder.Event{Edge: decoder.FallingEdge, Time: evt.Time}
+			edge := decoder.FallingEdge
+			if evt.Edge == gpio.RisingEdge {
+				edge = decoder.RisingEdge
 			}
-			slog.Debug("GPIO Event", "pin", app.pin.Number(), "edge", evt.Edge, "time", evt.Time.Format("15:04:05.000000"))
+
+			// Never block the GPIO callback: a full decoder drops the edge instead.
+			select {
+			case app.decoderEvents <- decoder.Event{Edge: edge, Time: evt.Time, Missed: evt.Missed + missed}:
+				missed = 0
+			default:
+				missed += evt.Missed + 1
+			}
+			slog.Debug("GPIO Event", "pin", app.pin.Number(), "edge", evt.Edge, "time", evt.Time.Format("15:04:05.000000"), "missed", evt.Missed)
 		})
 
 	if err != nil {
@@ -188,7 +198,10 @@ func (app *App) Init() error {
 		return err
 	}
 
-	// start manchaster decoder
+	// Start the Manchester decoder. A bit clock of 0 recovers the clock from
+	// the signal, so any controller is read whatever its bit rate. The
+	// convention stays IEEE: an inverted line (optocoupler) is detected by the
+	// DL-Bus handler at the SYNC.
 	app.decoder, err = decoder.New(app.decoderEvents,
 		app.config.DlBus.BitClock,
 		decoder.WithManchesterEncoding(decoder.IEEE))
@@ -196,8 +209,13 @@ func (app *App) Init() error {
 		slog.Error("Failed to start Manchester decoder", "error", err)
 		return err
 	}
+	if app.config.DlBus.BitClock == 0 {
+		slog.Info("Manchester decoder recovers the bit clock from the signal")
+	} else {
+		slog.Info("Manchester decoder uses a fixed bit clock", "bitClock", app.config.DlBus.BitClock)
+	}
 
-	app.dlbus = dlbus.New()
+	app.dlbus = dlbus.New(dlbus.WithLogger(slog.Default()))
 
 	var typ int
 	switch t := app.config.DataLogger.Type; t {
