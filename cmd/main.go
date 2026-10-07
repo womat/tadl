@@ -11,8 +11,10 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
+	"syscall"
 	"time"
 
 	"github.com/womat/golib/xlog"
@@ -85,6 +87,14 @@ func run(configFile string, debug bool) int {
 	fmt.Printf("Starting %s %s\n", app.MODULE, app.VERSION)
 	fmt.Printf("Loading configuration from: %s\n", configFile)
 
+	// Subscribe once for the whole process, not per App: between two lifecycles no App is
+	// listening, and without a subscription a SIGTERM or a second SIGHUP in that gap would end
+	// the process with the default action. Here the signal waits in the buffer and the next
+	// App handles it.
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGINT)
+	defer signal.Stop(signals)
+
 	for {
 		// Reload configuration on every restart
 		config, err := loadConfig(configFile, debug)
@@ -93,22 +103,29 @@ func run(configFile string, debug bool) int {
 			return 1
 		}
 
-		// Close previous logger if exists
-		if logger != nil {
-			logger.Close()
-		}
-
-		// Initialize logger
-		if logger, err = xlog.Init(config.LogDestination, config.LogLevel); err != nil {
+		// Switch to the new logger before closing the previous one, so no line written
+		// in between goes to a file that is already closed.
+		newLogger, err := xlog.Init(config.LogDestination, config.LogLevel)
+		if err != nil {
 			fmt.Printf("Failed to initialize logger: %s\n", err.Error())
 			return 1
 		}
-
-		slog.SetDefault(logger.Logger)
+		slog.SetDefault(newLogger.Logger)
+		if logger != nil {
+			logger.Close()
+		}
+		logger = newLogger
 		slog.Info("Logging initialized/reloaded", "logLevel", config.LogLevel)
 
+		// A SIGHUP restart only goes ahead when the config file still loads and validates;
+		// otherwise the running App keeps going with its current configuration.
+		checkReload := func() error {
+			_, err := loadConfig(configFile, debug)
+			return err
+		}
+
 		// Create and run the application
-		a, err := app.New(config, filepath.Join("/opt", app.MODULE)).Run()
+		a, err := app.New(config, filepath.Join("/opt", app.MODULE), signals, checkReload).Run()
 		if err != nil {
 			slog.Error("Critical error occurred, shutting down", "error", err)
 			return 1

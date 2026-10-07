@@ -92,10 +92,11 @@ mqtt:
   # MQTT topic prefix to publish measurements to
   topicPrefix: test/uvr42
 
-  # Publish interval as Go duration string  (e.g. 60s)
-  # 0 = publish only on change (see minDeltaTemp)
+  # Publish interval as Go duration string (e.g. 60s), at least 1s.
+  # The current values are published at this interval in any case.
   publishInterval: 60s
 
-  # Minimum temperature delta in Celsius to trigger a publish
-  # 0 = publish only by interval (see publishInterval)
+  # Minimum temperature change in Kelvin since the last publish that triggers an
+  # immediate publish. A changed output is always published at once.
+  # 0 = temperatures are published only by interval (see publishInterval)
   minDeltaTemp: 0.5

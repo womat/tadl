@@ -42,6 +42,7 @@ paths:
         The response structure depends on the configured device type:
         UVR42 returns temperature1–4, out1, out2 and a timestamp.
         UVR31 returns temperature1–3, out1 and a timestamp.
+        A temperature outside the sensor range is left out.
       produces:
       - application/json
       responses:
@@ -68,6 +69,13 @@ paths:
           description: Unauthorized
           schema:
             type: string
+        "503":
+          description: No frame received yet, or the last one is stale
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
       security:
       - ApiKeyAuth: []
       summary: Get current data logger values

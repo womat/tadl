@@ -139,15 +139,15 @@ func (c *Config) Validate() error {
 	}
 
 	if c.MQTT.PublishInterval < time.Second {
-		return fmt.Errorf("dataCollectionInterval must be greater than 1s, got %v", c.MQTT.PublishInterval)
+		return fmt.Errorf("mqtt publishInterval must be at least 1s, got %v", c.MQTT.PublishInterval)
 	}
 
-	if c.MQTT.TopicPrefix == "" {
+	if c.MQTT.Connection != "" && c.MQTT.TopicPrefix == "" {
 		return fmt.Errorf("mqtt topicPrefix must be configured")
 	}
 
 	if c.MQTT.MinDeltaTemp < 0 {
-		return fmt.Errorf("mqtt minDelta must be non-negative, got %v", c.MQTT.MinDeltaTemp)
+		return fmt.Errorf("mqtt minDeltaTemp must be non-negative, got %v", c.MQTT.MinDeltaTemp)
 	}
 
 	validGPIOs := []int{2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27}

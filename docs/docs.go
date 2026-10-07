@@ -22,7 +22,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Returns the latest available values read from the configured data logger.\nThe response structure depends on the configured device type:\nUVR42 returns temperature1–4, out1, out2 and a timestamp.\nUVR31 returns temperature1–3, out1 and a timestamp.",
+                "description": "Returns the latest available values read from the configured data logger.\nThe response structure depends on the configured device type:\nUVR42 returns temperature1–4, out1, out2 and a timestamp.\nUVR31 returns temperature1–3, out1 and a timestamp.\nA temperature outside the sensor range is left out.",
                 "produces": [
                     "application/json"
                 ],
@@ -64,6 +64,17 @@ const docTemplate = `{
                         "description": "Unauthorized",
                         "schema": {
                             "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "No frame received yet, or the last one is stale",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
                         }
                     }
                 }

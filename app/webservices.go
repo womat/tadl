@@ -48,7 +48,7 @@ func (app *App) StartWebServer() error {
 	app.web.IdleTimeout = defaultIdleTimeout
 
 	// Load TLS certificate
-	cert, err := loadTLSCert(app.config.Webserver.CertFile, app.config.Webserver.KeyFile)
+	cert, err := loadTLSCert(app.config.Webserver.CertFile, app.config.Webserver.KeyFile, app.config.Env)
 	if err != nil {
 		return fmt.Errorf("failed to load TLS certificate: %w", err)
 	}
@@ -86,9 +86,9 @@ func (app *App) StartWebServer() error {
 
 		select {
 		case err := <-serverErrCh:
-			slog.Error("Webserver runtime error", "error", err)
-			// Optional: trigger restart or shutdown here
-			// app.shutdownProcedure(ModeRestart)
+			// The signal handler restarts the App. It must not be done from here: the
+			// restart waits for this goroutine via app.wg.
+			app.serverErr <- err
 		case <-app.ctx.Done():
 			ctxShutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
@@ -103,14 +103,18 @@ func (app *App) StartWebServer() error {
 	return nil
 }
 
-// loadTLSCert tries to load a file-based cert, falls back to embedded certs if missing
-func loadTLSCert(certFile, keyFile string) (tls.Certificate, error) {
+// loadTLSCert tries to load a file-based cert. If it is missing, it falls back to the
+// embedded development cert, except with env prod: that key ships in every binary.
+func loadTLSCert(certFile, keyFile, env string) (tls.Certificate, error) {
 	if _, err := os.Stat(certFile); err == nil {
 		// Production cert
 		return tls.LoadX509KeyPair(certFile, keyFile)
 	} else if errors.Is(err, os.ErrNotExist) {
+		if env == ProdEnv {
+			return tls.Certificate{}, fmt.Errorf("certFile %s not found; the embedded development certificate is not used with env: %s", certFile, ProdEnv)
+		}
 		// Dev fallback
-		slog.Warn("TLS cert file not found, using embedded fallback")
+		slog.Warn("TLS cert file not found, using embedded fallback", "certFile", certFile, "env", env)
 		return tls.X509KeyPair(embeddedCertFile, embeddedKeyFile)
 	} else {
 		return tls.Certificate{}, fmt.Errorf("failed to read cert file: %w", err)

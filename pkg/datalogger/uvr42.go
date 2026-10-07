@@ -13,7 +13,6 @@ package datalogger
 
 import (
 	"context"
-	"encoding/binary"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -25,6 +24,7 @@ import (
 type UVR42Handler struct {
 	watching atomic.Bool
 	wg       sync.WaitGroup
+	mu       sync.Mutex // guards cancel, and Watch against a concurrent Close
 	cancel   context.CancelFunc
 }
 
@@ -41,6 +41,9 @@ func NewUVR42() *UVR42Handler {
 // Returns ErrWatcherAlreadyStarted if the handler is already running.
 // Call Close() to stop the goroutine and wait for it to finish.
 func (h *UVR42Handler) Watch(rx <-chan []byte, opts ...Option) (<-chan keyvalue.Record, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	if !h.watching.CompareAndSwap(false, true) {
 		return nil, ErrWatcherAlreadyStarted
 	}
@@ -53,6 +56,7 @@ func (h *UVR42Handler) Watch(rx <-chan []byte, opts ...Option) (<-chan keyvalue.
 		opt(o)
 	}
 	logger := o.logger
+	warner := &rangeWarner{logger: logger}
 
 	// Buffered like the DL-Bus frames: the reader may be busy publishing, and
 	// an unbuffered channel would drop every record that arrives meanwhile.
@@ -80,10 +84,13 @@ func (h *UVR42Handler) Watch(rx <-chan []byte, opts ...Option) (<-chan keyvalue.
 					return
 				}
 
-				kv, err := h.decode(b)
+				kv, invalid, err := h.decode(b)
+				warner.warn(invalid, time.Now())
 				if err != nil {
+					// Frames of other devices and broken frames are common on the
+					// bus, so they are only reported at debug level.
 					if logger != nil {
-						logger.Warn("failed to decode frame", "error", err)
+						logger.Debug("failed to decode frame", "error", err)
 					}
 					continue
 				}
@@ -104,9 +111,10 @@ func (h *UVR42Handler) Watch(rx <-chan []byte, opts ...Option) (<-chan keyvalue.
 }
 
 // decode parses a raw 10-byte UVR42 frame into a keyvalue.Record.
+// Temperatures out of range are left out of the record and returned.
 // Returns ErrInvalidSize, ErrUnsupportedDevice, or ErrInvalidTemperature
-// if the frame cannot be decoded.
-func (h *UVR42Handler) decode(b []byte) (keyvalue.Record, error) {
+// (no temperature in range) if the frame cannot be decoded.
+func (h *UVR42Handler) decode(b []byte) (keyvalue.Record, []outOfRange, error) {
 	const (
 		out1      byte = 1 << 5 // bitmask for Out1 (bit 5)
 		out2      byte = 1 << 6 // bitmask for Out2 (bit 6)
@@ -116,43 +124,37 @@ func (h *UVR42Handler) decode(b []byte) (keyvalue.Record, error) {
 	r := keyvalue.NewRecord()
 
 	if len(b) != frameSize {
-		return r, ErrInvalidSize
+		return r, nil, ErrInvalidSize
 	}
 
 	if b[0] != UVR42 {
-		return r, ErrUnsupportedDevice
+		return r, nil, ErrUnsupportedDevice
 	}
 
-	temperature1 := float64(int16(binary.LittleEndian.Uint16(b[1:3]))) / 10
-	temperature2 := float64(int16(binary.LittleEndian.Uint16(b[3:5]))) / 10
-	temperature3 := float64(int16(binary.LittleEndian.Uint16(b[5:7]))) / 10
-	temperature4 := float64(int16(binary.LittleEndian.Uint16(b[7:9]))) / 10
-
-	if temperature1 > tMax || temperature1 < tMin ||
-		temperature2 > tMax || temperature2 < tMin ||
-		temperature3 > tMax || temperature3 < tMin ||
-		temperature4 > tMax || temperature4 < tMin {
-		return r, ErrInvalidTemperature
+	invalid, err := setTemperatures(r, b[1:9], []string{KeyTemperature1, KeyTemperature2, KeyTemperature3, KeyTemperature4})
+	if err != nil {
+		return r, invalid, err
 	}
 
 	r.Set(KeyTimestamp, time.Now())
-	r.Set(KeyTemperature1, temperature1)
-	r.Set(KeyTemperature2, temperature2)
-	r.Set(KeyTemperature3, temperature3)
-	r.Set(KeyTemperature4, temperature4)
 	r.Set(KeyOut1, b[9]&out1 > 0)
 	r.Set(KeyOut2, b[9]&out2 > 0)
-	return r, nil
+	return r, invalid, nil
 }
 
 // Close stops the decoding goroutine and waits for it to terminate.
 // It is a no-op if Watch has never been called.
 func (h *UVR42Handler) Close() error {
-	if !h.watching.Load() {
+	h.mu.Lock()
+	cancel := h.cancel
+	h.cancel = nil
+	h.mu.Unlock()
+
+	if cancel == nil {
 		return nil
 	}
 
-	h.cancel()
+	cancel()
 	h.wg.Wait()
 	return nil
 }

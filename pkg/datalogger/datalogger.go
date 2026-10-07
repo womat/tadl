@@ -8,7 +8,7 @@
 // Usage:
 //
 //	dl := datalogger.NewUVR42()
-//	frames, err := dl.Watch(ctx, rawFrameCh, datalogger.WithLogger(slog.Default()))
+//	frames, err := dl.Watch(rawFrameCh, datalogger.WithLogger(slog.Default()))
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
@@ -19,8 +19,10 @@
 package datalogger
 
 import (
+	"encoding/binary"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/womat/golib/keyvalue"
 )
@@ -50,17 +52,21 @@ const (
 	KeyOut2         = "out2"
 )
 
-// Valid temperature range in °C. Values outside this range are rejected.
+// Valid temperature range in °C. A value outside this range, such as from a
+// broken or disconnected sensor, is left out of the record.
 const (
 	tMax = 300
 	tMin = -50
 )
 
+// rangeWarnInterval is how often a sensor that stays out of range is reported.
+const rangeWarnInterval = time.Minute
+
 // DL is the interface implemented by all data logger handlers.
 // Call Watch to start decoding and Close to release resources.
 type DL interface {
 	// Watch starts the decoding goroutine and returns a channel on which
-	// decoded keyvalue.Records are delivered. Cancel ctx to stop decoding.
+	// decoded keyvalue.Records are delivered. Call Close to stop decoding.
 	Watch(rx <-chan []byte, opts ...Option) (<-chan keyvalue.Record, error)
 
 	// Close blocks until the decoding goroutine has terminated.
@@ -81,5 +87,55 @@ type Option func(*options)
 func WithLogger(l *slog.Logger) Option {
 	return func(o *options) {
 		o.logger = l
+	}
+}
+
+// outOfRange is a temperature that was left out of a record.
+type outOfRange struct {
+	key   string
+	value float64
+}
+
+// setTemperatures decodes the temperatures in b, int16 little-endian in 1/10 °C,
+// into r under keys, one per two bytes. A value outside tMin…tMax is left out
+// and returned instead. When no value is in range, the frame carries no
+// measurement at all and ErrInvalidTemperature is returned.
+func setTemperatures(r keyvalue.Record, b []byte, keys []string) ([]outOfRange, error) {
+	var invalid []outOfRange
+	for i, key := range keys {
+		t := float64(int16(binary.LittleEndian.Uint16(b[2*i:]))) / 10
+		if t > tMax || t < tMin {
+			invalid = append(invalid, outOfRange{key: key, value: t})
+			continue
+		}
+		r.Set(key, t)
+	}
+	if len(invalid) == len(keys) {
+		return invalid, ErrInvalidTemperature
+	}
+	return invalid, nil
+}
+
+// rangeWarner reports sensors out of range, each at most once per
+// rangeWarnInterval. It is used by a single decoding goroutine.
+type rangeWarner struct {
+	logger *slog.Logger
+	last   map[string]time.Time
+}
+
+func (w *rangeWarner) warn(invalid []outOfRange, now time.Time) {
+	if w.logger == nil {
+		return
+	}
+	if w.last == nil {
+		w.last = make(map[string]time.Time)
+	}
+	for _, v := range invalid {
+		if t, ok := w.last[v.key]; ok && now.Sub(t) < rangeWarnInterval {
+			continue
+		}
+		w.last[v.key] = now
+		w.logger.Warn("temperature out of range, sensor left out",
+			"sensor", v.key, "value", v.value, "min", tMin, "max", tMax)
 	}
 }

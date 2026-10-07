@@ -12,38 +12,38 @@ import (
 	"github.com/womat/golib/mqtt"
 )
 
-// StartPeriodicPublish runs a periodic publishing loop in a separate goroutine.
-// The loop stops when ctx is cancelled. Publish errors are logged but do not stop the loop.
-func (h *Handler) StartPeriodicPublish(ctx context.Context, interval time.Duration, mqttHandler *mqtt.Handler) {
+// RunPeriodicPublish publishes the current data frame every interval until ctx
+// is cancelled. Publish errors are logged but do not stop the loop.
+func (h *Handler) RunPeriodicPublish(ctx context.Context, interval time.Duration, pub Publisher) {
 	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
 
-	go func() {
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ctx.Done():
-				slog.Info("Stopping periodic MQTT publishing")
-				return
-			case <-ticker.C:
-				err := h.PublishFrame(mqttHandler)
-				if err != nil {
-					slog.Error("Failed to publish data frame", "err", err)
-				}
-			}
+	for {
+		select {
+		case <-ctx.Done():
+			slog.Info("Stopping periodic MQTT publishing")
+			return
+		case <-ticker.C:
+			logPublishError(h.PublishFrame(pub))
 		}
-	}()
+	}
 }
 
-// PublishFrame publishes the current data frame to MQTT as JSON.
-// Returns an error if mqttHandler is nil, JSON marshaling fails, or publishing fails.
-func (h *Handler) PublishFrame(mqttHandler *mqtt.Handler) error {
-	if mqttHandler == nil {
-		return fmt.Errorf("mqtt handler is nil")
+// PublishFrame publishes the current data frame to MQTT as JSON and remembers it
+// as the last published frame. It returns ErrNoData when there is no current
+// frame, so that neither an empty nor a stale frame reaches the broker.
+func (h *Handler) PublishFrame(pub Publisher) error {
+	if pub == nil {
+		return fmt.Errorf("mqtt publisher is nil")
 	}
 
 	h.mux.Lock()
-	b, err := json.Marshal(h.DataFrame)
+	frame := h.DataFrame
+	if !h.isCurrent(frame) {
+		h.mux.Unlock()
+		return ErrNoData
+	}
+	b, err := json.Marshal(frame)
 	h.mux.Unlock()
 
 	if err != nil {
@@ -56,10 +56,13 @@ func (h *Handler) PublishFrame(mqttHandler *mqtt.Handler) error {
 		Qos:      0,
 		Retained: h.config.Retained,
 	}
-	err = mqttHandler.Publish(msg)
-	if err != nil {
+	if err = pub.Publish(msg); err != nil {
 		return err
 	}
 
+	// Frames are replaced, never modified, so frame can be kept without a copy.
+	h.mux.Lock()
+	h.lastPublished = frame
+	h.mux.Unlock()
 	return nil
 }

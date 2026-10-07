@@ -38,6 +38,12 @@ import (
 )
 
 func main() {
+	os.Exit(run())
+}
+
+// run emulates the controller and returns the exit code. It returns instead of
+// calling log.Fatal, so that the deferred pin.Close releases the GPIO line.
+func run() int {
 	gpioLine := flag.Int("gpio", 21, "GPIO pin (BCM) to drive")
 	typ := flag.String("type", "uvr42", "controller to emulate: uvr42 | uvr31")
 	bitClock := flag.Int("bitClock", 50, "nominal bit clock in Hz (UVR42/UVR31: 50, UVR1611: 488)")
@@ -60,11 +66,13 @@ func main() {
 
 	pin, err := rpi.NewPin(*gpioLine, rpi.WithMode(gpio.Output))
 	if err != nil {
-		log.Fatal(err)
+		log.Print(err)
+		return 1
 	}
 	defer pin.Close()
 	if err := pin.SetValue(gpio.Low); err != nil {
-		log.Fatal(err)
+		log.Print(err)
+		return 1
 	}
 
 	enc, err := encoder.New(clock,
@@ -75,7 +83,8 @@ func main() {
 		encoder.WithErrorHandler(func(err error) { log.Printf("GPIO error: %v", err) }),
 	)
 	if err != nil {
-		log.Fatal(err)
+		log.Print(err)
+		return 1
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -107,6 +116,7 @@ func main() {
 		log.Printf("could not leave GPIO%d low: %v", *gpioLine, err)
 	}
 	log.Printf("stopped after queuing %d frames", sent)
+	return 0
 }
 
 // buildFrame returns the data bytes of one frame of the given controller.

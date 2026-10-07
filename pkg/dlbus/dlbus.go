@@ -56,6 +56,7 @@ type Stats struct {
 type Handler struct {
 	watching atomic.Bool
 	wg       sync.WaitGroup
+	mu       sync.Mutex // guards cancel, and Watch against a concurrent Close
 	cancel   context.CancelFunc
 	logger   *slog.Logger
 
@@ -90,6 +91,9 @@ func New(opts ...Option) *Handler {
 // It returns ErrWatcherAlreadyStarted if the decoder is already running.
 // Call Close() to stop the goroutine and wait for it to terminate.
 func (r *Handler) Watch(rx <-chan decoder.Bit) (<-chan []byte, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if !r.watching.CompareAndSwap(false, true) {
 		return nil, ErrWatcherAlreadyStarted
 	}
@@ -106,11 +110,16 @@ func (r *Handler) Watch(rx <-chan decoder.Bit) (<-chan []byte, error) {
 // Close stops the decoding goroutine and waits for it to terminate.
 // It is a no-op if Watch has never been called.
 func (r *Handler) Close() error {
-	if !r.watching.Load() {
+	r.mu.Lock()
+	cancel := r.cancel
+	r.cancel = nil
+	r.mu.Unlock()
+
+	if cancel == nil {
 		return nil
 	}
 
-	r.cancel()
+	cancel()
 	r.wg.Wait()
 	return nil
 }
