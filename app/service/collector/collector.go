@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/womat/golib/keyvalue"
@@ -42,6 +43,9 @@ type Handler struct {
 	// lastPublished is the last frame sent to the broker. A new frame is compared
 	// with it, not with its predecessor, so that a slow drift adds up to MinDeltaTemp.
 	lastPublished keyvalue.Record
+	// offline is set while publishes fail because the broker is not connected, so
+	// that an outage is logged once instead of for every frame.
+	offline atomic.Bool
 }
 
 type Config struct {
@@ -89,7 +93,7 @@ func (h *Handler) Run(ctx context.Context, rx <-chan keyvalue.Record, pub Publis
 			}
 
 			if changed && pub != nil {
-				logPublishError(h.PublishFrame(pub))
+				h.publish(pub)
 			}
 		}
 	}
@@ -203,14 +207,22 @@ func toTime(record keyvalue.Record, key string) (time.Time, error) {
 	return t, nil
 }
 
-// logPublishError logs a failed publish at a level that matches its cause.
-func logPublishError(err error) {
+// publish publishes the current data frame and logs a failure at a level that
+// matches its cause. A broker outage is logged once when it begins and once
+// when publishing works again, not for every frame in between.
+func (h *Handler) publish(pub Publisher) {
+	err := h.PublishFrame(pub)
 	switch {
 	case err == nil:
+		if h.offline.Swap(false) {
+			slog.Info("MQTT publishing resumed")
+		}
 	case errors.Is(err, ErrNoData):
 		slog.Debug("No current data frame to publish")
 	case errors.Is(err, mqtt.ErrNotConnected):
-		slog.Warn("MQTT not connected, data frame not published")
+		if !h.offline.Swap(true) {
+			slog.Warn("MQTT not connected, data frames are not published until the broker is back")
+		}
 	default:
 		slog.Error("Failed to publish data frame", "err", err)
 	}

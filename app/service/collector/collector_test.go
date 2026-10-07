@@ -1,8 +1,10 @@
 package collector
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -161,5 +163,41 @@ func TestFrameWithoutTimestampRejected(t *testing.T) {
 	h := newHandler(0.5)
 	if _, err := h.checkAndUpdate(keyvalue.NewRecord()); err == nil {
 		t.Error("frame without timestamp accepted")
+	}
+}
+
+// countingHandler counts log records per level.
+type countingHandler struct {
+	counts map[slog.Level]int
+}
+
+func (c *countingHandler) Enabled(context.Context, slog.Level) bool { return true }
+func (c *countingHandler) Handle(_ context.Context, r slog.Record) error {
+	c.counts[r.Level]++
+	return nil
+}
+func (c *countingHandler) WithAttrs([]slog.Attr) slog.Handler { return c }
+func (c *countingHandler) WithGroup(string) slog.Handler      { return c }
+
+// A broker outage is logged once when it begins and once when it ends.
+func TestBrokerOutageLoggedOnce(t *testing.T) {
+	logs := &countingHandler{counts: map[slog.Level]int{}}
+	defer slog.SetDefault(slog.Default())
+	slog.SetDefault(slog.New(logs))
+
+	h, pub := newHandler(0.5), &fakePublisher{err: mqtt.ErrNotConnected}
+	for i := range 5 {
+		h.checkAndUpdate(uvr42Frame(t0, float64(20+i), false))
+		h.publish(pub)
+	}
+	if logs.counts[slog.LevelWarn] != 1 {
+		t.Errorf("outage logged %d times at warn level, want 1", logs.counts[slog.LevelWarn])
+	}
+
+	pub.err = nil
+	h.publish(pub)
+	h.publish(pub)
+	if logs.counts[slog.LevelInfo] != 1 {
+		t.Errorf("recovery logged %d times at info level, want 1", logs.counts[slog.LevelInfo])
 	}
 }

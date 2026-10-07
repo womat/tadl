@@ -24,7 +24,7 @@ func (h *Handler) RunPeriodicPublish(ctx context.Context, interval time.Duration
 			slog.Info("Stopping periodic MQTT publishing")
 			return
 		case <-ticker.C:
-			logPublishError(h.PublishFrame(pub))
+			h.publish(pub)
 		}
 	}
 }
