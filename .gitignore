@@ -16,3 +16,7 @@
 # vendor/
 /bin/
 /.idea
+/Makefile.local
+__pycache__/
+/app/certs/
+/dist/
