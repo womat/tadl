@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 340" width="800" height="340" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-labelledby="t d">
+  <title id="t">Test bench: dlbussim on GPIO21 drives tadl on GPIO20 through a PC817 optocoupler</title>
+  <desc id="d">Both ends sit on one Raspberry Pi. dlbussim drives GPIO21 (header pin 40) with DL-Bus frames; GPIO21 drives the LED of a PC817 optocoupler (pin 1 anode, pin 2 cathode) through the 470 ohm series resistor R1, the cathode goes to GND (pin 34). The PC817 transistor connects GPIO20 (header pin 38), the input of tadl, pulled up to 3.3 volt by the 10 kilohm resistor R2 or the internal pull-up, to GND (pin 39). The optocoupler inverts the signal, as it does on a real bus.</desc>
+  <style>
+    .wire { stroke: #17202b; stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+    .box { fill: #ffffff; stroke: #c3cbd4; stroke-width: 1.5; }
+    .res { fill: #ffffff; stroke: #17202b; stroke-width: 2; }
+    .opto { fill: #f3f5f7; stroke: #8a97a5; stroke-width: 1.5; }
+    .iso { stroke: #b3261e; stroke-width: 1.5; stroke-dasharray: 6 5; }
+    .led { fill: #e8231a; stroke: #b3261e; stroke-width: 1.5; }
+    .ray { stroke: #e8231a; stroke-width: 1.6; fill: none; }
+    .rayhead { fill: #e8231a; }
+    .term { fill: #ffffff; stroke: #17202b; stroke-width: 2; }
+    .dot { fill: #17202b; }
+    .t { fill: #17202b; font-size: 14px; }
+    .tb { fill: #17202b; font-size: 15px; font-weight: 600; }
+    .tm { fill: #5d6b7a; font-size: 12.5px; }
+    .pin { fill: #5d6b7a; font-size: 11px; font-weight: 600; }
+    .tz { fill: #5d6b7a; font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; }
+    .tiso { fill: #b3261e; font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; }
+    .ic { fill: #dde2e8; stroke: #5d6b7a; stroke-width: 1.5; }
+    .icpin { fill: #b9c1ca; stroke: #5d6b7a; stroke-width: 1.2; }
+    .icmark { fill: #5d6b7a; }
+    .diode { fill: #17202b; stroke: #17202b; stroke-width: 1.5; stroke-linejoin: round; }
+    .pi { fill: #e8f0fa; stroke: #2563a8; stroke-width: 1.5; }
+    .tpi { fill: #2563a8; font-size: 15px; font-weight: 600; }
+    @media (prefers-color-scheme: dark) {
+      .wire { stroke: #e6ebf0; }
+      .box { fill: #19212a; stroke: #3a4756; }
+      .res { fill: #19212a; stroke: #e6ebf0; }
+      .opto { fill: #11161c; stroke: #6b7a8a; }
+      .term { fill: #19212a; stroke: #e6ebf0; }
+      .dot { fill: #e6ebf0; }
+      .t, .tb { fill: #e6ebf0; }
+      .tm, .tz, .pin { fill: #93a1b0; }
+      .ic { fill: #2a3440; stroke: #8a97a5; }
+      .icpin { fill: #4a5664; stroke: #8a97a5; }
+      .icmark { fill: #93a1b0; }
+      .diode { fill: #e6ebf0; stroke: #e6ebf0; }
+      .pi { fill: #142233; stroke: #6ea8e6; }
+      .tpi { fill: #6ea8e6; }
+      .iso { stroke: #f07a70; }
+      .tiso { fill: #f07a70; }
+    }
+  </style>
+
+  <!-- zone labels -->
+  <text class="tz" x="20" y="20">dlbussim · emulated controller</text>
+  <text class="tz" x="560" y="20">tadl · DL-Bus input</text>
+
+  <g transform="translate(0 30)">
+  <!-- PC817, DIP-4: pins 1 (anode) and 2 (cathode) left, 4 (collector) and 3 (emitter) right -->
+  <rect class="icpin" x="378" y="91" width="14" height="10" rx="1.5"/>
+  <rect class="icpin" x="378" y="145" width="14" height="10" rx="1.5"/>
+  <rect class="icpin" x="518" y="91" width="14" height="10" rx="1.5"/>
+  <rect class="icpin" x="518" y="145" width="14" height="10" rx="1.5"/>
+  <rect class="ic" x="390" y="70" width="130" height="110" rx="5"/>
+  <circle class="icmark" cx="402" cy="80" r="3"/>
+  <text class="pin" x="370" y="88" text-anchor="end">1</text>
+  <text class="pin" x="370" y="168" text-anchor="end">2</text>
+  <text class="pin" x="540" y="88">4</text>
+  <text class="pin" x="540" y="168">3</text>
+  <text class="tb" x="455" y="206" text-anchor="middle">U1 · PC817</text>
+  <text class="tm" x="455" y="222" text-anchor="middle">optocoupler</text>
+  <text class="tiso" x="455" y="292" text-anchor="middle">inverts the signal, like on a real bus</text>
+
+  <!-- inside: LED from pin 1 to pin 2 -->
+  <path class="wire" d="M392 96 H425 V104"/>
+  <path class="led" d="M413 104 H437 L425 126 Z"/>
+  <line class="wire" x1="411" y1="127" x2="439" y2="127"/>
+  <path class="wire" d="M425 127 V150 H392"/>
+  <path class="ray" d="M441 108 L461 99"/>
+  <path class="ray" d="M441 120 L461 111"/>
+  <path class="rayhead" d="M463 98 L456 98 L459 103 Z"/>
+  <path class="rayhead" d="M463 110 L456 110 L459 115 Z"/>
+
+  <!-- inside: phototransistor, collector to pin 4, emitter to pin 3 -->
+  <line class="wire" x1="476" y1="100" x2="476" y2="140" style="stroke-width:3"/>
+  <path class="wire" d="M476 110 L496 96 H518"/>
+  <path class="wire" d="M476 130 L496 150 H518"/>
+  <path class="dot" d="M496 150 L486 148 L492 141 Z"/>
+
+  <!-- dlbussim output on the same Pi -->
+  <rect class="pi" x="20" y="40" width="130" height="150" rx="10"/>
+  <text class="tpi" x="36" y="64">Raspberry Pi</text>
+  <text class="tm" x="36" y="82">dlbussim -gpio 21</text>
+  <circle class="term" cx="150" cy="96" r="5"/>
+  <circle class="term" cx="150" cy="150" r="5"/>
+  <text class="t" x="138" y="101" text-anchor="end">GPIO21</text>
+  <text class="tm" x="138" y="117" text-anchor="end">pin 40</text>
+  <text class="t" x="138" y="155" text-anchor="end">GND</text>
+  <text class="tm" x="138" y="171" text-anchor="end">pin 34</text>
+
+  <!-- GPIO21 -> R1 -> pin 1 ; pin 2 -> GND -->
+  <path class="wire" d="M155 96 H250"/>
+  <rect class="res" x="250" y="86" width="60" height="20" rx="3"/>
+  <text class="tb" x="280" y="76" text-anchor="middle">R1</text>
+  <text class="tm" x="280" y="126" text-anchor="middle">470 Ω · ≈ 4 mA</text>
+  <path class="wire" d="M310 96 H378"/>
+  <path class="wire" d="M378 150 H155"/>
+
+  <!-- pin 4 -> GPIO20 with 10 kΩ pull-up to 3V3 ; pin 3 -> GND -->
+  <path class="wire" d="M532 96 H645"/>
+  <path class="wire" d="M532 150 H645"/>
+  <path class="wire" d="M645 16 H600 V26"/>
+  <rect class="res" x="590" y="26" width="20" height="60" rx="3"/>
+  <path class="wire" d="M600 86 V96"/>
+  <circle class="dot" cx="600" cy="96" r="3"/>
+  <text class="tb" x="582" y="36" text-anchor="end">R2</text>
+  <text class="tm" x="582" y="54" text-anchor="end">10 kΩ</text>
+  <text class="tm" x="582" y="70" text-anchor="end">optional</text>
+  <!-- Raspberry Pi header -->
+  <rect class="pi" x="650" y="0" width="130" height="194" rx="10"/>
+  <circle class="term" cx="650" cy="16" r="5"/>
+  <circle class="term" cx="650" cy="96" r="5"/>
+  <circle class="term" cx="650" cy="150" r="5"/>
+  <text class="t" x="664" y="21">3V3</text>
+  <text class="tm" x="704" y="21">pin 1</text>
+  <text class="t" x="664" y="101">GPIO20</text>
+  <text class="tm" x="664" y="117">pin 38 · tadl</text>
+  <text class="t" x="664" y="155">GND</text>
+  <text class="tm" x="704" y="155">pin 39</text>
+  <text class="tpi" x="715" y="180" text-anchor="middle">Raspberry Pi</text>
+  </g>
+</svg>
