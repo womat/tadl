@@ -32,6 +32,7 @@ import (
 	"log/slog"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/womat/golib/manchester/decoder"
 )
@@ -47,9 +48,11 @@ const syncBits = 12
 
 // Stats holds counters for monitoring the DL-Bus decoder.
 type Stats struct {
-	DroppedFrames  uint64 // number of frames discarded because the receiver was not keeping up
-	ProtocolErrors uint64 // number of frames discarded due to a missing stop bit
-	InvertedLine   bool   // the last SYNC arrived inverted, as behind an optocoupler
+	Frames         uint64    // number of frames assembled, including dropped ones
+	LastFrame      time.Time // when the last frame was assembled; zero before the first
+	DroppedFrames  uint64    // number of frames discarded because the receiver was not keeping up
+	ProtocolErrors uint64    // number of frames discarded due to a missing stop bit
+	InvertedLine   bool      // the last SYNC arrived inverted, as behind an optocoupler
 }
 
 // Handler decodes a DL-Bus bit stream into complete data frames.
@@ -60,6 +63,8 @@ type Handler struct {
 	cancel   context.CancelFunc
 	logger   *slog.Logger
 
+	frames         atomic.Uint64
+	lastFrame      atomic.Int64 // unix nanoseconds, 0 before the first frame
 	droppedFrames  atomic.Uint64
 	protocolErrors atomic.Uint64
 	invertedLine   atomic.Bool
@@ -126,7 +131,13 @@ func (r *Handler) Close() error {
 
 // Stats returns a snapshot of the current decoder counters.
 func (r *Handler) Stats() Stats {
+	var last time.Time
+	if ns := r.lastFrame.Load(); ns != 0 {
+		last = time.Unix(0, ns)
+	}
 	return Stats{
+		Frames:         r.frames.Load(),
+		LastFrame:      last,
 		DroppedFrames:  r.droppedFrames.Load(),
 		ProtocolErrors: r.protocolErrors.Load(),
 		InvertedLine:   r.invertedLine.Load(),
@@ -156,6 +167,8 @@ func (r *Handler) readFrames(ctx context.Context, rx <-chan decoder.Bit, tx chan
 		if len(frameBuffer) == 0 {
 			return
 		}
+		r.frames.Add(1)
+		r.lastFrame.Store(time.Now().UnixNano())
 		select {
 		case tx <- frameBuffer:
 			// The backing array now belongs to the reader: start a new one, so

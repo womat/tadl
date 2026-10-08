@@ -22,6 +22,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/womat/golib/keyvalue"
@@ -55,8 +56,11 @@ const (
 // Valid temperature range in °C. A value outside this range, such as from a
 // broken or disconnected sensor, is left out of the record.
 const (
-	tMax = 300
-	tMin = -50
+	MinTemperature = -50
+	MaxTemperature = 300
+
+	tMax = MaxTemperature
+	tMin = MinTemperature
 )
 
 // rangeWarnInterval is how often a sensor that stays out of range is reported.
@@ -72,6 +76,40 @@ type DL interface {
 	// Close blocks until the decoding goroutine has terminated.
 	// It is a no-op if Watch has never been called.
 	Close() error
+
+	// Stats returns how many frames were decoded and rejected so far.
+	Stats() Stats
+}
+
+// Stats counts the frames a handler has seen since it was created.
+type Stats struct {
+	Decoded  uint64 // frames decoded into a record
+	Rejected uint64 // frames of the wrong size or device, or without any valid temperature
+}
+
+// counters is embedded in each handler and counted by its decoding goroutine.
+type counters struct {
+	decoded  atomic.Uint64
+	rejected atomic.Uint64
+}
+
+// Stats returns a snapshot of the frame counters.
+func (c *counters) Stats() Stats {
+	return Stats{Decoded: c.decoded.Load(), Rejected: c.rejected.Load()}
+}
+
+// Keys returns the record keys of the temperatures and outputs a device sends,
+// in the order of its frame. It returns nil for an unknown device.
+func Keys(device int) (temperatures, outputs []string) {
+	switch device {
+	case UVR42:
+		return []string{KeyTemperature1, KeyTemperature2, KeyTemperature3, KeyTemperature4},
+			[]string{KeyOut1, KeyOut2}
+	case UVR31:
+		return []string{KeyTemperature1, KeyTemperature2, KeyTemperature3},
+			[]string{KeyOut1}
+	}
+	return nil, nil
 }
 
 // options holds optional configuration applied via Option functions.

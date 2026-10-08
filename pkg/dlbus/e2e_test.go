@@ -142,6 +142,10 @@ func TestUVR42ReachesTheDataLogger(t *testing.T) {
 			if stats.InvertedLine != invert {
 				t.Errorf("%s, inverted=%v: Stats.InvertedLine = %v", clock.name, invert, stats.InvertedLine)
 			}
+			if stats.Frames != 3 || stats.LastFrame.IsZero() {
+				t.Errorf("%s, inverted=%v: Stats.Frames = %d, LastFrame = %v; want 3 and a time",
+					clock.name, invert, stats.Frames, stats.LastFrame)
+			}
 		}
 	}
 }

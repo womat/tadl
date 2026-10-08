@@ -46,6 +46,9 @@ type Handler struct {
 	// offline is set while publishes fail because the broker is not connected, so
 	// that an outage is logged once instead of for every frame.
 	offline atomic.Bool
+
+	// samples holds one set of temperatures per minute for the trend, oldest first.
+	samples []sample
 }
 
 type Config struct {
@@ -112,6 +115,7 @@ func (h *Handler) checkAndUpdate(current keyvalue.Record) (bool, error) {
 
 	// Always store the latest frame regardless of whether it triggered a publish.
 	h.DataFrame = current
+	h.track(current)
 	return changed, nil
 }
 
@@ -147,17 +151,8 @@ func (h *Handler) hasChanged(current keyvalue.Record) (bool, error) {
 		return false, err
 	}
 
-	var outputs, temperatures []string
-	switch h.typ {
-	case datalogger.UVR42:
-		outputs = []string{datalogger.KeyOut1, datalogger.KeyOut2}
-		temperatures = []string{datalogger.KeyTemperature1, datalogger.KeyTemperature2,
-			datalogger.KeyTemperature3, datalogger.KeyTemperature4}
-	case datalogger.UVR31:
-		outputs = []string{datalogger.KeyOut1}
-		temperatures = []string{datalogger.KeyTemperature1, datalogger.KeyTemperature2,
-			datalogger.KeyTemperature3}
-	default:
+	temperatures, outputs := datalogger.Keys(h.typ)
+	if temperatures == nil {
 		return false, ErrUnsupportedFrameType
 	}
 

@@ -117,3 +117,37 @@ func TestCloseAfterInputClosed(t *testing.T) {
 		t.Errorf("Close after input closed: %v", err)
 	}
 }
+
+func TestKeys(t *testing.T) {
+	temps, outs := Keys(UVR42)
+	if len(temps) != 4 || len(outs) != 2 || temps[0] != KeyTemperature1 || outs[1] != KeyOut2 {
+		t.Errorf("UVR42: %v %v", temps, outs)
+	}
+	temps, outs = Keys(UVR31)
+	if len(temps) != 3 || len(outs) != 1 {
+		t.Errorf("UVR31: %v %v", temps, outs)
+	}
+	if temps, outs = Keys(0x99); temps != nil || outs != nil {
+		t.Errorf("unknown device: %v %v", temps, outs)
+	}
+}
+
+func TestStatsCountDecodedAndRejected(t *testing.T) {
+	h := NewUVR42()
+	rx := make(chan []byte)
+	out, err := h.Watch(rx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		rx <- FrameUVR42([4]float64{20, 30, 40, 50}, false, false)
+		rx <- FrameUVR31([3]float64{20, 30, 40}, false) // wrong device for this handler
+		rx <- FrameUVR42([4]float64{20, 30, 40, 50}, true, false)
+		close(rx)
+	}()
+	for range out {
+	}
+	if s := h.Stats(); s.Decoded != 2 || s.Rejected != 1 {
+		t.Errorf("Stats = %+v, want 2 decoded and 1 rejected", s)
+	}
+}

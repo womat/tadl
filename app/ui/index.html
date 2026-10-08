@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tadl</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232563a8'/%3E%3Cpath d='M9 6a3 3 0 0 1 6 0v12.5a5.5 5.5 0 1 1-6 0Z' fill='none' stroke='%23fff' stroke-width='2'/%3E%3Ccircle cx='12' cy='23' r='2.8' fill='%23ff6a55'/%3E%3Crect x='11' y='10' width='2' height='12' rx='1' fill='%23ff6a55'/%3E%3Cpath d='M19 9h8M19 14h6M19 19h7' stroke='%23fff' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
+<!--
+  Web page of tadl, embedded in the binary and served at GET /.
+  It holds no data itself: it asks for the API key once, keeps it in localStorage and polls
+  /health with it, which carries the controller values and the state of the DL-Bus input.
+  Self-contained on purpose - no external fonts or scripts, the Pi may have no internet access.
+-->
+<style>
+:root {
+  --bg: #f3f5f7;
+  --surface: #ffffff;
+  --line: #dde2e8;
+  --fg: #17202b;
+  --muted: #5d6b7a;
+  --accent: #2563a8;
+  --ok: #1f7a4d;
+  --ok-soft: #e3f3ea;
+  --warn: #9a5b00;
+  --warn-soft: #fbefdc;
+  --crit: #b3261e;
+  --crit-soft: #fbe6e4;
+  --off-soft: #e8ecf1;
+  --cold: #2f7fd1;
+  --hot: #d2452f;
+  --lamp-off: #c9cfd6;
+  --lamp-on: #22a35a;
+  --lamp-glow: rgba(34, 163, 90, .5);
+  --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-num: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #11161c; --surface: #19212a; --line: #2a3541; --fg: #e6ebf0; --muted: #93a1b0;
+    --accent: #6ea8e6; --ok: #5cc98f; --ok-soft: #173326; --warn: #e9b04c; --warn-soft: #3a2c14;
+    --crit: #f07a70; --crit-soft: #3d1c1a; --off-soft: #1d2630;
+    --cold: #5aa2ee; --hot: #f0715c; --lamp-off: #3a4450; --lamp-on: #4fd28a; --lamp-glow: rgba(79, 210, 138, .55);
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-ui);
+  font-size: 15px; line-height: 1.45; padding: 0 16px;
+}
+[hidden] { display: none !important; }
+.wrap { max-width: 1080px; margin: 0 auto; padding-block: 20px 40px; }
+.stack { display: flex; flex-direction: column; gap: 20px; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+header {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 20px;
+  padding-bottom: 14px; border-bottom: 1px solid var(--line);
+}
+/* Brand: a thermometer for the controller's sensors, with log lines next to it. */
+.brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.brand .mark { width: 34px; height: 34px; color: var(--accent); flex: none; }
+.brand .mark .mercury { fill: var(--hot); }
+.brand .mark .log { stroke: var(--muted); }
+.brand .words { display: flex; flex-direction: column; line-height: 1.1; }
+.brand h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -.01em; }
+.brand h1 b { color: var(--hot); }
+.sub { font-size: 11px; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); }
+/* The host names the device the page belongs to, so it sits next to the brand. */
+.brand .device { min-width: 0; padding-left: 14px; margin-left: 2px; border-left: 1px solid var(--line); }
+.brand .host { font-size: 22px; font-weight: 600; letter-spacing: -.01em; overflow-wrap: anywhere; }
+.signout {
+  font: inherit; font-size: 12px; font-weight: 600; color: var(--muted); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.signout:hover { color: var(--fg); border-color: var(--muted); }
+.signout svg { width: 14px; height: 14px; }
+.meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; font-size: 13px; color: var(--muted); }
+.num { font-family: var(--font-num); color: var(--fg); }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.pill.ok { color: var(--ok); background: var(--ok-soft); }
+.pill.crit { color: var(--crit); background: var(--crit-soft); }
+.pill.off { color: var(--muted); background: var(--off-soft); }
+
+.banner { display: flex; gap: 10px; align-items: center; padding: 10px 14px; border-radius: 8px; background: var(--crit-soft); color: var(--crit); font-weight: 500; }
+.banner.warn { background: var(--warn-soft); color: var(--warn); }
+
+.grid { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; align-items: start; }
+@media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
+.stale { opacity: .45; filter: grayscale(.8); }
+.card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  padding: 16px 18px; display: flex; flex-direction: column; gap: 16px; min-width: 0;
+}
+.card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.card-head h2 { margin: 0; font-size: 15px; font-weight: 600; }
+.tag { font-family: var(--font-num); font-size: 12px; color: var(--muted); font-weight: 400; }
+.age { font-size: 13px; color: var(--muted); }
+.age .n { font-family: var(--font-num); }
+.age.fresh .n { color: var(--ok); }
+.age.old .n { color: var(--crit); font-weight: 600; }
+.label { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin-bottom: 6px; }
+.empty { color: var(--muted); margin: 0; }
+
+/* Temperature tiles: the bar length follows the sensor's own range (config min…max),
+   its colour the absolute temperature, cold blue to hot red. */
+.temps { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(170px, 100%), 1fr)); gap: 12px; }
+.tile { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.tile .top { display: flex; justify-content: space-between; gap: 6px; align-items: baseline; }
+.tile .name { font-weight: 600; font-size: 14px; overflow-wrap: anywhere; }
+.tile .key { font-family: var(--font-num); font-size: 11px; color: var(--muted); white-space: nowrap; }
+.valrow { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.tile .val { font-family: var(--font-num); font-size: 30px; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.tile .val small { font-size: 15px; color: var(--muted); font-weight: 400; margin-left: 3px; }
+.trend { font-family: var(--font-num); font-size: 12px; color: var(--muted); white-space: nowrap; }
+.trend.up { color: var(--hot); }
+.trend.down { color: var(--cold); }
+.bar { height: 6px; border-radius: 3px; background: var(--off-soft); overflow: hidden; }
+.bar i { display: block; height: 100%; border-radius: 3px; background: color-mix(in oklab, var(--cold), var(--hot) var(--heat)); }
+.range { display: flex; justify-content: space-between; font-family: var(--font-num); font-size: 11px; color: var(--muted); }
+.tile.fault { border-color: var(--warn); background: var(--warn-soft); }
+.tile.fault .val { font-size: 17px; color: var(--warn); padding-block: 7px; }
+
+.outputs { display: flex; flex-wrap: wrap; gap: 12px; }
+.out { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; min-width: 0; }
+.lamp { width: 18px; height: 18px; border-radius: 50%; background: var(--lamp-off); flex: none; }
+.lamp.on { background: var(--lamp-on); box-shadow: 0 0 10px 2px var(--lamp-glow); }
+.out .name { font-weight: 600; font-size: 14px; }
+.out .state { font-size: 13px; color: var(--muted); }
+.out .state.on { color: var(--ok); font-weight: 600; }
+
+/* Receive LED: flashes once per valid frame, like the pulse LED of s0meter. */
+.rx { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.rx .led { width: 10px; height: 10px; border-radius: 50%; background: var(--lamp-off); transition: background .3s, box-shadow .3s; }
+.rx .led.on { background: var(--lamp-on); box-shadow: 0 0 9px 2px var(--lamp-glow); transition: none; }
+@media (prefers-reduced-motion: reduce) { .rx .led.on { box-shadow: none; } }
+.signal { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; font-weight: 600; font-size: 14px; }
+.signal::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: currentColor; flex: none; }
+.signal small { font-weight: 400; color: var(--muted); font-size: 12px; display: block; }
+.signal.ok { color: var(--ok); background: var(--ok-soft); }
+.signal.warn { color: var(--warn); background: var(--warn-soft); }
+.signal.crit { color: var(--crit); background: var(--crit-soft); }
+
+dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 8px 12px; font-size: 13px; }
+dt { color: var(--muted); }
+dd { margin: 0; text-align: right; font-family: var(--font-num); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+dd.warn { color: var(--warn); font-weight: 600; }
+dd abbr { text-decoration: underline dotted; cursor: help; }
+
+footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--muted); }
+
+.keybox {
+  max-width: 380px; margin: 40px auto; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 10px; padding: 24px; display: flex; flex-direction: column; gap: 14px;
+}
+.keybox h2 { margin: 0; font-size: 18px; }
+.keybox p { margin: 0; font-size: 13px; color: var(--muted); }
+.keybox p.err { color: var(--crit); }
+.keybox input {
+  font: inherit; font-family: var(--font-num); padding: 9px 11px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--fg); width: 100%;
+}
+.keybox button {
+  align-self: flex-end; font: inherit; font-weight: 600; color: var(--surface); background: var(--accent);
+  border: none; border-radius: 6px; padding: 8px 18px; cursor: pointer;
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <section id="login" hidden>
+    <form class="keybox" id="keyform">
+      <h2>tadl</h2>
+      <p id="keyerr" class="err" hidden>The API key was rejected. Check webserver.apiKey in the config.</p>
+      <label for="apikey" class="label">API key</label>
+      <input id="apikey" type="password" autocomplete="current-password" placeholder="webserver.apiKey" required>
+      <p>Stored in this browser only and sent as X-API-Key.</p>
+      <button type="submit">Connect</button>
+    </form>
+  </section>
+
+  <section id="main" hidden>
+    <div class="stack">
+      <header>
+        <div class="brand">
+          <svg class="mark" viewBox="0 0 34 34" fill="none" stroke-linecap="round" aria-hidden="true">
+            <path d="M9 4.5a3.5 3.5 0 0 1 7 0v16.2a6.5 6.5 0 1 1-7 0Z" stroke="currentColor" stroke-width="2.2"/>
+            <circle class="mercury" cx="12.5" cy="26" r="3.6"/>
+            <rect class="mercury" x="11.2" y="9" width="2.6" height="15" rx="1.3"/>
+            <path class="log" d="M21 8h10M21 14h7M21 20h9" stroke-width="2.2"/>
+          </svg>
+          <div class="words"><h1>ta<b>dl</b></h1><span class="sub">DL-Bus data logger</span></div>
+          <div class="words device"><span class="host" id="host">–</span><span class="sub">host</span></div>
+        </div>
+        <div class="meta">
+          <span id="mqtt" class="pill off">MQTT …</span>
+          <button type="button" class="signout" id="signout">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2.5H3.5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1H6"/><path d="M10.5 11 13.5 8l-3-3"/><path d="M13.5 8H6"/></svg>Sign out
+          </button>
+        </div>
+      </header>
+
+      <div id="banner" class="banner" role="alert" hidden>
+        <span aria-hidden="true">⚠</span><span id="bannertext"></span>
+      </div>
+
+      <div id="grid" class="grid">
+        <section class="card" id="controller">
+          <div class="card-head">
+            <h2>Controller <span class="tag" id="type">–</span></h2>
+            <span class="age" id="age">–</span>
+          </div>
+          <div>
+            <div class="label">Temperatures</div>
+            <div class="temps" id="temps"></div>
+          </div>
+          <div>
+            <div class="label">Outputs</div>
+            <div class="outputs" id="outputs"></div>
+          </div>
+        </section>
+
+        <section class="card" id="buscard">
+          <div class="card-head">
+            <h2>DL-Bus</h2>
+            <span class="rx" title="Flashes on every valid frame">frame <span class="led" id="rxled"></span></span>
+          </div>
+          <div class="signal" id="signal"></div>
+          <dl id="bus"></dl>
+        </section>
+      </div>
+
+      <footer>
+        <span>Updated <span class="num" id="updated">–</span> · refreshes every 3 s</span>
+        <span>up <span class="num" id="uptime">–</span> · <span class="num" id="version">–</span></span>
+      </footer>
+    </div>
+  </section>
+</div>
+
+<script>
+"use strict";
+const POLL_MS = 3000;
+const KEY = "tadl.apiKey";
+const STEADY_K = 0.3;   // a 15 min trend below this counts as steady
+const HOT_AT = 90;      // °C at which the bar colour is fully hot; 0 °C is fully cold
+const MAX_FLASHES = 3;  // receive LED flashes per poll
+const $ = id => document.getElementById(id);
+
+let apiKey = load();
+let timer = null;
+let lastOk = null;      // time of the last successful poll, for the stale banner
+let lastFrames = null;  // framesReceived at the previous poll, for the receive LED
+
+function load() { try { return localStorage.getItem(KEY) || ""; } catch { return ""; } }
+function store(v) { try { v ? localStorage.setItem(KEY, v) : localStorage.removeItem(KEY); } catch {} }
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
+function hms(d) { return d.toTimeString().slice(0, 8); }
+
+function ago(sec) {
+  if (sec < 60) return Math.floor(sec) + " s";
+  if (sec < 3600) return Math.floor(sec / 60) + " min";
+  return Math.floor(sec / 3600) + " h " + Math.floor(sec % 3600 / 60) + " min";
+}
+
+// 1m, 3h 12m, 2d 4h: the two largest units, leading zero units left out.
+function uptime(sec) {
+  const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60);
+  if (d) return `${d}d ${h}h`;
+  if (h) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+// temperature1 -> T1, out2 -> A2 (the controller's own names for its inputs and outputs).
+function shortKey(key) {
+  return key.replace(/^temperature/, "T").replace(/^out/, "A");
+}
+
+function trend(d) {
+  if (d === null || d === undefined) return `<span class="trend" title="available after 15 min">–</span>`;
+  const steady = Math.abs(d) < STEADY_K;
+  const arrow = steady ? "→" : d > 0 ? "↑" : "↓";
+  const sign = d > 0 ? "+" : d < 0 ? "−" : "±";
+  const cls = steady ? "" : d > 0 ? "up" : "down";
+  return `<span class="trend ${cls}" title="change over the last 15 min">${arrow} ${sign}${Math.abs(d).toFixed(1)} K</span>`;
+}
+
+function tile(t) {
+  const key = shortKey(t.key);
+  const name = t.label ? esc(t.label) : key;
+  const top = `<div class="top"><span class="name">${name}</span><span class="key">${t.label ? key : ""}</span></div>`;
+  const range = `<div class="range"><span>${t.min}</span><span>${t.max} °C</span></div>`;
+  if (t.value === null) {
+    return `<div class="tile fault">${top}<div class="val">⚠ sensor fault</div><div class="bar"></div>${range}</div>`;
+  }
+  const pct = Math.max(0, Math.min(100, (t.value - t.min) / (t.max - t.min) * 100));
+  const heat = Math.max(0, Math.min(100, t.value / HOT_AT * 100));
+  return `<div class="tile">${top}
+    <div class="valrow"><span class="val">${t.value.toFixed(1)}<small>°C</small></span>${trend(t.trend15m)}</div>
+    <div class="bar"><i style="width:${pct}%;--heat:${heat}%"></i></div>${range}</div>`;
+}
+
+function output(o) {
+  const key = shortKey(o.key);
+  const name = o.label ? esc(o.label) : key;
+  return `<div class="out"><span class="lamp ${o.on ? "on" : ""}"></span>
+    <span><span class="name">${name}</span> <span class="tag">${o.label ? key : ""}</span><br>
+    <span class="state ${o.on ? "on" : ""}">${o.on ? "on" : "off"}</span></span></div>`;
+}
+
+function renderController(dl, bus) {
+  $("type").textContent = dl.type.toUpperCase();
+  const age = $("age");
+  if (dl.lastFrameAgeSeconds === null) {
+    age.className = "age old";
+    age.innerHTML = 'no frame <span class="n">since start</span>';
+  } else {
+    age.className = "age " + (dl.current ? "fresh" : "old");
+    age.innerHTML = `last frame <span class="n">${ago(dl.lastFrameAgeSeconds)}</span> ago`;
+  }
+  $("temps").innerHTML = dl.temperatures.length
+    ? dl.temperatures.map(tile).join("")
+    : `<p class="empty">Waiting for the first frame from the controller.</p>`;
+  $("outputs").innerHTML = dl.outputs.length ? dl.outputs.map(output).join("") : `<p class="empty">–</p>`;
+  $("controller").classList.toggle("stale", !dl.current);
+
+  // The controller card says what is wrong; the bus card stays readable for the diagnosis.
+  if (dl.current) return null;
+  if (bus.signal === "noValidFrames") {
+    return `The DL-Bus carries frames, but none matches the configured controller ${dl.type.toUpperCase()}. Check datalogger.type in the config.`;
+  }
+  const since = dl.lastFrame ? ` since ${dl.lastFrame.slice(11, 19)}` : " since tadl started";
+  return `No current frame from the controller${since}. Check the DL-Bus wiring and that the controller is powered.`;
+}
+
+function renderBus(bus) {
+  const hz = bus.bitRateHz ? ` · ${bus.bitRateHz.toFixed(1)} Hz` : "";
+  const state = {
+    receiving: ["ok", "Receiving" + hz, "valid frames from the controller"],
+    noValidFrames: ["warn", "Signal, no valid frames" + hz, "frames arrive but are rejected"],
+    noSignal: ["crit", "No signal", "no frames on the DL-Bus"],
+  }[bus.signal] || ["crit", "Unknown", bus.signal];
+  const sig = $("signal");
+  sig.className = "signal " + state[0];
+  sig.innerHTML = `<span>${esc(state[1])}<small>${esc(state[2])}</small></span>`;
+
+  const e = bus.errors24h;
+  const detail = `Last 24 h: rejected frames ${e.rejectedFrames} · dropped frames ${e.droppedFrames} · ` +
+    `protocol errors ${e.protocolErrors} · dropped edges ${e.droppedEdges}`;
+  const when = e.total && bus.lastErrorAgeSeconds !== null ? ` · last ${ago(bus.lastErrorAgeSeconds)} ago` : "";
+  $("bus").innerHTML = `<dt>Line</dt><dd>${bus.invertedLine ? "inverted" : "normal"}</dd>
+    <dt>Errors 24 h</dt><dd class="${e.total ? "warn" : ""}"><abbr title="${detail}">${e.total}</abbr>${when}</dd>`;
+
+  blink(bus.framesReceived);
+}
+
+// The page learns only every POLL_MS how many frames arrived, not when. It spreads that many
+// flashes evenly over the next interval, so the LED blinks about as often as frames arrive.
+function blink(frames) {
+  const added = lastFrames === null ? 0 : frames - lastFrames;
+  lastFrames = frames;
+  const n = Math.min(Math.max(added, 0), MAX_FLASHES);
+  const led = $("rxled");
+  for (let i = 0; i < n; i++) {
+    setTimeout(() => {
+      led.classList.add("on");
+      setTimeout(() => led.classList.remove("on"), 140);
+    }, (i + 0.5) * POLL_MS / n);
+  }
+}
+
+function render(health) {
+  const warning = renderController(health.datalogger, health.bus);
+  renderBus(health.bus);
+  $("bannertext").textContent = warning || "";
+  $("banner").className = "banner warn";
+  $("banner").hidden = !warning;
+
+  const mq = $("mqtt");
+  const state = { connected: ["ok", "MQTT connected"], disconnected: ["crit", "MQTT disconnected"], disabled: ["off", "MQTT not configured"] }[health.mqtt] || ["off", "MQTT unknown"];
+  mq.className = "pill " + state[0];
+  mq.textContent = state[1];
+  $("version").textContent = health.appVersion;
+  $("host").textContent = health.hostname;
+  document.title = `tadl · ${health.hostname}`;
+  $("uptime").textContent = uptime(health.uptimeSeconds);
+}
+
+function showLogin(rejected) {
+  stop();
+  $("main").hidden = true;
+  $("login").hidden = false;
+  $("keyerr").hidden = !rejected;
+  $("apikey").value = "";
+  $("apikey").focus();
+}
+
+function stale(reason) {
+  $("bannertext").textContent = reason + (lastOk ? ` Values below are stale since ${hms(lastOk)}.` : "");
+  $("banner").className = "banner";
+  $("banner").hidden = false;
+  $("grid").classList.add("stale");
+}
+
+async function get(path) {
+  const r = await fetch(path, { headers: { "X-API-Key": apiKey }, cache: "no-store" });
+  if (r.status === 401) throw Object.assign(new Error("unauthorized"), { auth: true });
+  if (!r.ok) throw new Error(`${path} answered ${r.status}`);
+  return r.json();
+}
+
+async function poll() {
+  try {
+    const health = await get("health");
+    lastOk = new Date();
+    $("grid").classList.remove("stale");
+    render(health);
+    $("updated").textContent = hms(lastOk);
+  } catch (e) {
+    if (e.auth) {
+      apiKey = "";
+      store("");
+      showLogin(true);
+      return;
+    }
+    stale(e instanceof TypeError ? "Cannot reach tadl." : `tadl returned an error: ${e.message}.`);
+  }
+}
+
+function start() {
+  stop();
+  $("login").hidden = true;
+  $("main").hidden = false;
+  lastFrames = null; // after a pause the difference spans the whole pause: no burst of flashes
+  poll();
+  timer = setInterval(poll, POLL_MS);
+}
+function stop() { clearInterval(timer); timer = null; }
+
+$("keyform").addEventListener("submit", e => {
+  e.preventDefault();
+  apiKey = $("apikey").value.trim();
+  if (!apiKey) return;
+  store(apiKey);
+  start();
+});
+$("signout").addEventListener("click", () => { apiKey = ""; store(""); showLogin(false); });
+
+// Polling a hidden tab only loads the Pi; resume at once when the tab is shown again.
+document.addEventListener("visibilitychange", () => {
+  if (!apiKey) return;
+  document.hidden ? stop() : start();
+});
+
+apiKey ? start() : showLogin(false);
+</script>
+</body>
+</html>

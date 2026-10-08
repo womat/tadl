@@ -25,6 +25,7 @@ type UVR31Handler struct {
 	wg       sync.WaitGroup
 	mu       sync.Mutex // guards cancel, and Watch against a concurrent Close
 	cancel   context.CancelFunc
+	counters
 }
 
 // NewUVR31 returns a new UVR31Handler ready to use.
@@ -86,6 +87,7 @@ func (h *UVR31Handler) Watch(rx <-chan []byte, opts ...Option) (<-chan keyvalue.
 				kv, invalid, err := h.decode(b)
 				warner.warn(invalid, time.Now())
 				if err != nil {
+					h.rejected.Add(1)
 					// Frames of other devices and broken frames are common on the
 					// bus, so they are only reported at debug level.
 					if logger != nil {
@@ -93,6 +95,7 @@ func (h *UVR31Handler) Watch(rx <-chan []byte, opts ...Option) (<-chan keyvalue.
 					}
 					continue
 				}
+				h.decoded.Add(1)
 				select {
 				case c <- kv:
 				default:

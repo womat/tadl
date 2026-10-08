@@ -50,3 +50,39 @@ func TestValidateErrorsNameTheConfigKeys(t *testing.T) {
 		t.Errorf("minDeltaTemp error = %v", err)
 	}
 }
+
+func ptr(v float64) *float64 { return &v }
+
+func TestValidateSensors(t *testing.T) {
+	tests := []struct {
+		name    string
+		typ     string
+		sensors map[string]SensorConfig
+		wantErr string
+	}{
+		{"valid", "uvr42", map[string]SensorConfig{
+			"temperature1": {Label: "Collector", Min: ptr(-20), Max: ptr(150)},
+			"temperature4": {Label: "Boiler room", Min: ptr(-5), Max: ptr(25)},
+			"out1":         {Label: "Solar pump"},
+		}, ""},
+		{"label only uses the default range", "uvr31", map[string]SensorConfig{"temperature2": {Label: "Tank"}}, ""},
+		{"typo", "uvr42", map[string]SensorConfig{"temprature1": {Label: "x"}}, "unknown key"},
+		{"key of the other device", "uvr31", map[string]SensorConfig{"temperature4": {Label: "x"}}, "unknown key"},
+		{"min not below max", "uvr42", map[string]SensorConfig{"temperature1": {Min: ptr(50), Max: ptr(50)}}, "less than max"},
+		{"min above the default max", "uvr42", map[string]SensorConfig{"temperature1": {Min: ptr(200)}}, "less than max"},
+		{"range on an output", "uvr42", map[string]SensorConfig{"out2": {Min: ptr(0)}}, "no min or max"},
+		{"range outside the sensor range", "uvr42", map[string]SensorConfig{"temperature1": {Max: ptr(400)}}, "within"},
+	}
+	for _, tt := range tests {
+		c := validConfig()
+		c.DataLogger.Type = tt.typ
+		c.DataLogger.Sensors = tt.sensors
+		err := c.Validate()
+		switch {
+		case tt.wantErr == "" && err != nil:
+			t.Errorf("%s: unexpected error %v", tt.name, err)
+		case tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)):
+			t.Errorf("%s: err=%v, want it to contain %q", tt.name, err, tt.wantErr)
+		}
+	}
+}

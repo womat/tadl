@@ -9,7 +9,50 @@ import (
 	"os"
 	"runtime"
 	"time"
+
+	"github.com/womat/tadl/app/service/collector"
+	"github.com/womat/tadl/app/service/errwindow"
 )
+
+// MQTT connection states reported in Model.Mqtt.
+const (
+	MqttConnected    = "connected"
+	MqttDisconnected = "disconnected"
+	MqttDisabled     = "disabled"
+)
+
+// DL-Bus signal states reported in BusStatus.Signal.
+const (
+	SignalReceiving     = "receiving"     // valid frames arrive
+	SignalNoValidFrames = "noValidFrames" // frames arrive, but none fits the configured controller
+	SignalNone          = "noSignal"      // no frames on the bus
+)
+
+// BusStatus describes the DL-Bus input.
+type BusStatus struct {
+	Signal       string   `json:"signal"`
+	BitRateHz    *float64 `json:"bitRateHz"` // recovered bit clock; null while the decoder searches for it
+	InvertedLine bool     `json:"invertedLine"`
+
+	// Cumulative counters since start.
+	FramesReceived uint64 `json:"framesReceived"`
+	RejectedFrames uint64 `json:"rejectedFrames"`
+	DroppedFrames  uint64 `json:"droppedFrames"`
+	ProtocolErrors uint64 `json:"protocolErrors"`
+	DroppedEdges   uint64 `json:"droppedEdges"`
+
+	Errors24h           ErrorSummary `json:"errors24h"`
+	LastError           *string      `json:"lastError"` // last error within the last 24 h; null if none
+	LastErrorAgeSeconds *float64     `json:"lastErrorAgeSeconds"`
+
+	Decoder string `json:"decoder"` // decoder state as text, for troubleshooting
+}
+
+// ErrorSummary is the number of errors per kind and in total.
+type ErrorSummary struct {
+	errwindow.Counts
+	Total uint64 `json:"total"`
+}
 
 // Model holds the main system and runtime health information.
 type Model struct {
@@ -23,6 +66,10 @@ type Model struct {
 	HeapAllocBytes uint64  `json:"heapAllocBytes"` // Allocated heap memory in bytes
 	SysMemoryBytes uint64  `json:"sysMemoryBytes"` // Total memory obtained from the OS
 	Timestamp      string  `json:"timestamp"`      // UTC timestamp when health info was collected (RFC3339)
+
+	Mqtt       string                      `json:"mqtt"`       // connected | disconnected | disabled
+	Datalogger *collector.DataloggerStatus `json:"datalogger"` // latest values of the controller
+	Bus        *BusStatus                  `json:"bus"`        // state of the DL-Bus input
 }
 
 var startTime = time.Now() // Tracks application start time

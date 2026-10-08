@@ -51,8 +51,18 @@ webserver:
 # Datalogger configuration
 # =============================================================================
 datalogger:
-  # Supported types: uvr42
+  # Supported types: uvr42 | uvr31
   type: uvr42
+
+  # Optional: names and bar ranges for the web UI, keyed like the data
+  # (uvr42: temperature1-4, out1-2; uvr31: temperature1-3, out1).
+  # Without an entry the web UI shows T1, A1 ... and a range of -20 ... 150 °C.
+  # The API (/data) and MQTT are not affected.
+  # sensors:
+  #   temperature1: { label: Collector, min: -20, max: 150 }
+  #   temperature2: { label: Tank top, min: 0, max: 100 }
+  #   temperature4: { label: Boiler room, min: -5, max: 25 }
+  #   out1: { label: Solar pump }
 
 # =============================================================================
 # DL-Bus configuration
@@ -84,7 +94,7 @@ dlbus:
 mqtt:
   # Broker connection string (empty = MQTT disabled)
   # Format: tcp://host:port
-  connection: "tcp://raspberrypi4.fritz.box:1883"
+  connection: "tcp://mqtt.example.com:1883"
 
   # Retain messages on the broker
   retained: false

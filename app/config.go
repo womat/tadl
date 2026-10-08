@@ -7,6 +7,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/womat/tadl/pkg/datalogger"
 	"gopkg.in/yaml.v3"
 )
 
@@ -56,7 +57,46 @@ type DlBusConfig struct {
 }
 
 type DataLoggerConfig struct {
-	Type string `yaml:"type"` // Type of data logger Technische Alternative uvr42
+	Type string `yaml:"type"` // Type of data logger Technische Alternative: uvr42 | uvr31
+	// Sensors names the temperatures and outputs in the web UI and sets the range
+	// of each temperature bar, keyed like the data (temperature1, out1, ...). Optional.
+	Sensors map[string]SensorConfig `yaml:"sensors"`
+}
+
+// SensorConfig is how the web UI shows one temperature or output.
+type SensorConfig struct {
+	Label string   `yaml:"label"` // name shown in the web UI
+	Min   *float64 `yaml:"min"`   // lower end of the temperature bar in °C, default DefaultSensorMin
+	Max   *float64 `yaml:"max"`   // upper end of the temperature bar in °C, default DefaultSensorMax
+}
+
+// Default range of a temperature bar in the web UI, in °C.
+const (
+	DefaultSensorMin = -20.0
+	DefaultSensorMax = 150.0
+)
+
+// deviceType returns the datalogger device ID for a configured type name, or 0.
+func deviceType(name string) int {
+	switch name {
+	case "uvr42":
+		return datalogger.UVR42
+	case "uvr31":
+		return datalogger.UVR31
+	}
+	return 0
+}
+
+// SensorRange returns the bar range of a temperature, with the defaults filled in.
+func (s SensorConfig) SensorRange() (lo, hi float64) {
+	lo, hi = DefaultSensorMin, DefaultSensorMax
+	if s.Min != nil {
+		lo = *s.Min
+	}
+	if s.Max != nil {
+		hi = *s.Max
+	}
+	return lo, hi
 }
 
 // NewConfig returns a Config with sane defaults
@@ -173,5 +213,31 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid data logger type: %s, must be one of %v", c.DataLogger.Type, validDataLoggerTypes)
 	}
 
+	return c.validateSensors()
+}
+
+// validateSensors checks datalogger.sensors against the keys of the configured device.
+func (c *Config) validateSensors() error {
+	temperatures, outputs := datalogger.Keys(deviceType(c.DataLogger.Type))
+	for key, s := range c.DataLogger.Sensors {
+		switch {
+		case slices.Contains(temperatures, key):
+			lo, hi := s.SensorRange()
+			if lo < datalogger.MinTemperature || hi > datalogger.MaxTemperature {
+				return fmt.Errorf("datalogger.sensors.%s: range %v…%v must be within %d…%d °C",
+					key, lo, hi, datalogger.MinTemperature, datalogger.MaxTemperature)
+			}
+			if lo >= hi {
+				return fmt.Errorf("datalogger.sensors.%s: min %v must be less than max %v", key, lo, hi)
+			}
+		case slices.Contains(outputs, key):
+			if s.Min != nil || s.Max != nil {
+				return fmt.Errorf("datalogger.sensors.%s: an output has no min or max", key)
+			}
+		default:
+			return fmt.Errorf("datalogger.sensors.%s: unknown key for %s, must be one of %v",
+				key, c.DataLogger.Type, slices.Concat(temperatures, outputs))
+		}
+	}
 	return nil
 }

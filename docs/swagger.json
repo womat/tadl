@@ -76,7 +76,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Retrieves memory usage, goroutine count, version, hostname, Go runtime version, and OS.",
+                "description": "Retrieves memory usage, goroutine count, version, hostname, Go runtime version and OS, the MQTT connection state,\nthe latest controller values with their names, bar ranges and 15 min trend, and the state of the DL-Bus input\n(signal, bit rate, line polarity, error counters since start and for the last 24 h). The web UI at / reads it.",
                 "produces": [
                     "application/json"
                 ],
@@ -130,6 +130,143 @@
         }
     },
     "definitions": {
+        "collector.DataloggerStatus": {
+            "type": "object",
+            "properties": {
+                "current": {
+                    "type": "boolean"
+                },
+                "lastFrame": {
+                    "type": "string"
+                },
+                "lastFrameAgeSeconds": {
+                    "type": "number"
+                },
+                "outputs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/collector.OutputStatus"
+                    }
+                },
+                "temperatures": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/collector.TemperatureStatus"
+                    }
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "collector.OutputStatus": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "on": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "collector.TemperatureStatus": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "max": {
+                    "type": "number"
+                },
+                "min": {
+                    "type": "number"
+                },
+                "trend15m": {
+                    "description": "Trend15m is the change in Kelvin over the last 15 minutes; null until\ntadl has run that long or while the sensor is out of range.",
+                    "type": "number"
+                },
+                "value": {
+                    "description": "null: sensor out of range",
+                    "type": "number"
+                }
+            }
+        },
+        "health.BusStatus": {
+            "type": "object",
+            "properties": {
+                "bitRateHz": {
+                    "description": "recovered bit clock; null while the decoder searches for it",
+                    "type": "number"
+                },
+                "decoder": {
+                    "description": "decoder state as text, for troubleshooting",
+                    "type": "string"
+                },
+                "droppedEdges": {
+                    "type": "integer"
+                },
+                "droppedFrames": {
+                    "type": "integer"
+                },
+                "errors24h": {
+                    "$ref": "#/definitions/health.ErrorSummary"
+                },
+                "framesReceived": {
+                    "description": "Cumulative counters since start.",
+                    "type": "integer"
+                },
+                "invertedLine": {
+                    "type": "boolean"
+                },
+                "lastError": {
+                    "description": "last error within the last 24 h; null if none",
+                    "type": "string"
+                },
+                "lastErrorAgeSeconds": {
+                    "type": "number"
+                },
+                "protocolErrors": {
+                    "type": "integer"
+                },
+                "rejectedFrames": {
+                    "type": "integer"
+                },
+                "signal": {
+                    "type": "string"
+                }
+            }
+        },
+        "health.ErrorSummary": {
+            "type": "object",
+            "properties": {
+                "droppedEdges": {
+                    "description": "GPIO edges lost before decoding",
+                    "type": "integer"
+                },
+                "droppedFrames": {
+                    "description": "frames discarded because the reader was busy",
+                    "type": "integer"
+                },
+                "protocolErrors": {
+                    "description": "frames discarded for a missing stop bit",
+                    "type": "integer"
+                },
+                "rejectedFrames": {
+                    "description": "frames of the wrong size or device, or without a valid temperature",
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
         "health.Model": {
             "type": "object",
             "properties": {
@@ -141,6 +278,22 @@
                     "description": "Current version of the application",
                     "type": "string"
                 },
+                "bus": {
+                    "description": "state of the DL-Bus input",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/health.BusStatus"
+                        }
+                    ]
+                },
+                "datalogger": {
+                    "description": "latest values of the controller",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/collector.DataloggerStatus"
+                        }
+                    ]
+                },
                 "goVersion": {
                     "description": "Go runtime version",
                     "type": "string"
@@ -151,6 +304,10 @@
                 },
                 "hostname": {
                     "description": "Machine name where the app runs",
+                    "type": "string"
+                },
+                "mqtt": {
+                    "description": "connected | disconnected | disabled",
                     "type": "string"
                 },
                 "numGoroutines": {

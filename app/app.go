@@ -25,6 +25,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -33,23 +34,21 @@ import (
 	"github.com/womat/golib/manchester/decoder"
 	"github.com/womat/golib/mqtt"
 	"github.com/womat/tadl/app/service/collector"
+	"github.com/womat/tadl/app/service/errwindow"
 	"github.com/womat/tadl/pkg/datalogger"
 	"github.com/womat/tadl/pkg/dlbus"
 )
 
-// VERSION holds the version information with the following logic in mind
+// VERSION is the application version, following semantic versioning
+// as described in https://semver.org/.
 //
-//	4 ... fixed
-//	0 ... year 2020, 1->year 2021, etc.
-//	7 ... month of year (7=July)
-//	the date format after the + is always the first of the month
-//
-// VERSION differs from semantic versioning as described in https://semver.org/
-// but we keep the correct syntax.
-// TODO: increase version number
+// It is not maintained in source: the Git tag is the single source of truth and
+// the value is injected at build time via -ldflags (see Makefile and
+// .goreleaser.yaml). The "dev" default applies to builds made without them.
+var VERSION = "dev"
+
 const (
-	VERSION = "1.6.3+20260314"
-	MODULE  = "tadl"
+	MODULE = "tadl"
 
 	ModeStop    = 0
 	ModeRestart = 1
@@ -79,6 +78,10 @@ type App struct {
 	// decoder processes GPIO edge events into a Manchester-decoded bit stream.
 	decoder       *decoder.Decoder
 	decoderEvents chan decoder.Event
+	// droppedEdges counts the GPIO edges the decoder had no room for.
+	droppedEdges atomic.Uint64
+	// busErrors sums the DL-Bus errors of the last 24 hours for the web UI.
+	busErrors *errwindow.Window
 
 	// dlbus ist the handler of the dlbus
 	dlbus *dlbus.Handler
@@ -118,6 +121,7 @@ func New(config *Config, baseDir string, signals <-chan os.Signal, checkReload f
 		cancelFunc: cancel,
 
 		decoderEvents: make(chan decoder.Event, 1024),
+		busErrors:     errwindow.New(),
 	}
 }
 
@@ -176,6 +180,7 @@ func (app *App) Run() (*App, error) {
 				missed = 0
 			default:
 				missed += evt.Missed + 1
+				app.droppedEdges.Add(1)
 			}
 			// About 1000 edges a second: skip building the arguments unless they are logged.
 			if debugEdges {
@@ -187,6 +192,20 @@ func (app *App) Run() (*App, error) {
 		slog.Error("can't watch gpio pin", "gpio", app.config.DlBus.GPIO, "error", err)
 		return app, app.abort(err)
 	}
+
+	// Book the bus errors in the 24 h window once a minute.
+	app.wg.Go(func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-app.ctx.Done():
+				return
+			case <-ticker.C:
+				app.busErrors.Observe(app.busErrorCounts())
+			}
+		}
+	})
 
 	// handle the OS signals
 	app.HandleOSSignals()

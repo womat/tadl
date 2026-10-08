@@ -1,7 +1,7 @@
 // Package app sets up HTTP routes and middleware for the application.
 // It supports authentication, Swagger documentation (dev only), and monitoring endpoints.
 // Routes:
-// - Public routes without authentication (e.g., version)
+// - Public routes without authentication: the web page at /, version
 // - Protected routes requiring API key or JWT
 // - Swagger documentation (only in development) at /swagger/
 // - Health, Version, and data endpoints
@@ -37,7 +37,8 @@ func (app *App) SetupRoutes() {
 	// Dev-only Swagger documentation (only registered with -tags swagger)
 	app.registerSwaggerRoute(mux)
 
-	// Public routes
+	// Public routes. {$} matches / only, so the page does not catch unknown paths.
+	mux.Handle("GET /{$}", app.HandleUI())
 	mux.Handle("GET /version", app.HandleVersion())
 
 	// Protected routes
