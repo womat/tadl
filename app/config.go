@@ -1,9 +1,12 @@
 package app
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -34,8 +37,6 @@ type WebserverConfig struct {
 	ListenHost string   `yaml:"listenHost"` // Host address for web server
 	ListenPort int      `yaml:"listenPort"` // Port for web server
 	ApiKey     string   `yaml:"apiKey"`     // API key for requests
-	JwtSecret  string   `yaml:"jwtSecret"`  // Secret for JWT tokens
-	JwtID      string   `yaml:"jwtID"`      // Unique JWT ID
 	KeyFile    string   `yaml:"keyFile"`    // SSL private key file
 	CertFile   string   `yaml:"certFile"`   // SSL certificate file
 	BlockedIPs []string `yaml:"blockedIPs"` // Forbidden IP addresses or networks
@@ -52,7 +53,7 @@ type MQTTConfig struct {
 
 type DlBusConfig struct {
 	GPIO            int           `yaml:"gpio"`            // GPIO pin for DL-Bus input
-	DebounceTime    time.Duration `yaml:"debounceTime"`    // Debounce duration (e.g. "100ms"), 0 = disabled
+	DebounceTime    time.Duration `yaml:"debounceTime"`    // Debounce duration (e.g. "100ms"), 0s = disabled
 	GPIOTermination string        `yaml:"gpioTermination"` // Termination type for GPIO (e.g. "pullup", "pulldown", "none")
 	BitClock        int           `yaml:"bitClock"`        // DL-Bus bit clock frequency in Hz (used for timing), 0 = auto-detect
 }
@@ -137,7 +138,22 @@ func NewConfig() *Config {
 	}
 }
 
-// LoadConfig loads configuration from a YAML file and expands environment variables.
+// envBraces matches ${VAR} references; see expandEnvBraces.
+var envBraces = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
+
+// expandEnvBraces replaces ${VAR} with the value of the environment variable VAR, or with an
+// empty string when it is unset. Unlike os.ExpandEnv it leaves every other "$" alone, so an API
+// key or password containing "$" is not silently cut short.
+func expandEnvBraces(s string) string {
+	return envBraces.ReplaceAllStringFunc(s, func(ref string) string {
+		return os.Getenv(envBraces.FindStringSubmatch(ref)[1])
+	})
+}
+
+// LoadConfig loads configuration from a YAML file and expands ${VAR} environment references.
+//
+// Unknown keys are an error rather than ignored, so a misspelled or renamed key cannot silently
+// leave its setting at the default.
 func LoadConfig(fileName string) (*Config, error) {
 	cfg := NewConfig()
 
@@ -154,11 +170,9 @@ func LoadConfig(fileName string) (*Config, error) {
 		return cfg, err
 	}
 
-	// Replace environment variables in the YAML
-	replaced := os.ExpandEnv(string(content))
-
-	// Unmarshal YAML into the config struct
-	if err = yaml.Unmarshal([]byte(replaced), cfg); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader([]byte(expandEnvBraces(string(content)))))
+	dec.KnownFields(true)
+	if err = dec.Decode(cfg); err != nil && !errors.Is(err, io.EOF) {
 		return cfg, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 

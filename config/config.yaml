@@ -73,14 +73,16 @@ dlbus:
   # GPIO input pin for DL-Bus signal
   gpio: 4
 
-  # Debounce period as Go duration string  (e.g. 5ms, 0 = disabled)
+  # Debounce period as Go duration string  (e.g. 5ms, 0s = disabled)
   # Keep 0: the kernel rounds the debounce up to its timer tick (4-10ms on a
   # Raspberry Pi) and then swallows the edges of short half-bits.
   debounceTime: 0s
 
-  # GPIO line termination
-  # Supported values: pullup | pulldown | none
-  gpioTermination: none
+  # GPIO line termination: pullup (default) | pulldown | none
+  # The optocoupler pulls the line to GND, so it needs a pull-up: the Pi's
+  # internal one (pullup) or an external resistor (none). pullup also works
+  # alongside an external resistor.
+  gpioTermination: pullup
 
   # DL-Bus bit clock in Hz, 0 = recover it from the signal (recommended).
   # With 0 tadl reads any controller whatever its bit rate (UVR31/UVR42: 50 Hz,

@@ -97,3 +97,34 @@ func TestDeviceNameDefaultsToType(t *testing.T) {
 		t.Errorf("DeviceName = %q, want solar", got)
 	}
 }
+
+func TestLoadConfigRejectsUnknownKeys(t *testing.T) {
+	for name, content := range map[string]string{
+		"renamed dlbus key": "dlbus:\n  bounceTime: 1\n",
+		"removed jwtSecret": "webserver:\n  jwtSecret: x\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := loadYAML(t, content); err == nil {
+				t.Error("expected an error for the unknown key")
+			}
+		})
+	}
+}
+
+// Only ${VAR} is expanded, so an API key containing "$" stays as it is.
+func TestLoadConfigExpandsBracedVariablesOnly(t *testing.T) {
+	t.Setenv("TADL_TEST_KEY", "from-env")
+	c, err := loadYAML(t, "webserver:\n  apiKey: ${TADL_TEST_KEY}\nmqtt:\n  topicPrefix: a$b\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Webserver.ApiKey != "from-env" || c.MQTT.TopicPrefix != "a$b" {
+		t.Errorf("apiKey = %q, topicPrefix = %q", c.Webserver.ApiKey, c.MQTT.TopicPrefix)
+	}
+}
+
+func TestLoadConfigExample(t *testing.T) {
+	if _, err := LoadConfig("../config/config.yaml"); err != nil {
+		t.Errorf("example config: %v", err)
+	}
+}

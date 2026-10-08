@@ -223,16 +223,17 @@ restart or a reload.
 
 Default location: `/opt/tadl/etc/config.yaml`
 
-- Environment variables are expanded inside the file, e.g. `apiKey: ${TADL_API_KEY}`. Both `${VAR}`
-  and `$VAR` are expanded and an unset variable becomes empty, so a value that contains a literal `$`
-  (an API key or a broker password) is changed — avoid `$` in such values.
+- `${VAR}` is replaced with the environment variable `VAR`, e.g. `apiKey: ${TADL_API_KEY}`; an unset
+  variable becomes empty. Only this form is expanded; a bare `$` stays as it is, so keys and
+  passwords may contain it.
 - The configuration is validated on start and before every reload: `env` is `dev` or `prod`,
   `apiKey` is set, `logLevel` is known, the port is 1–65535, `publishInterval` is at least `1s`,
   `topicPrefix` is set when MQTT is enabled, `minDeltaTemp`, `debounceTime` and `bitClock` are not
   negative, the GPIO is between 2 and 27, `gpioTermination` and `type` are known, and every
   `datalogger.sensors` entry names a key of the configured controller.
-- Keys that tadl does not know are ignored, so check the spelling of a setting that seems to have no
-  effect.
+- Unknown keys are rejected, so a misspelled or renamed setting cannot silently fall back to its
+  default.
+- Durations need a unit (`10ms`, `5s`, `1m`); a bare number, `0` included, is rejected.
 
 ```yaml
 # =============================================================================
@@ -310,14 +311,16 @@ dlbus:
   # GPIO input pin for DL-Bus signal
   gpio: 4
 
-  # Debounce period as Go duration string  (e.g. 5ms, 0 = disabled)
+  # Debounce period as Go duration string  (e.g. 5ms, 0s = disabled)
   # Keep 0: the kernel rounds the debounce up to its timer tick (4-10ms on a
   # Raspberry Pi) and then swallows the edges of short half-bits.
   debounceTime: 0s
 
-  # GPIO line termination
-  # Supported values: pullup | pulldown | none
-  gpioTermination: none
+  # GPIO line termination: pullup (default) | pulldown | none
+  # The optocoupler pulls the line to GND, so it needs a pull-up: the Pi's
+  # internal one (pullup) or an external resistor (none). pullup also works
+  # alongside an external resistor.
+  gpioTermination: pullup
 
   # DL-Bus bit clock in Hz, 0 = recover it from the signal (recommended).
   # With 0 tadl reads any controller whatever its bit rate (UVR31/UVR42: 50 Hz,
@@ -365,14 +368,13 @@ mqtt:
 | `webserver.certFile` | string | — | TLS certificate file |
 | `webserver.blockedIPs` | list | empty | Addresses or networks (CIDR) that are refused |
 | `webserver.allowedIPs` | list | empty | Addresses or networks (CIDR) that are allowed; empty allows all |
-| `webserver.jwtSecret`, `webserver.jwtID` | string | empty | Optional: also accept a JWT as `Authorization: Bearer`, only when both are set. Not needed for the web page |
 | `datalogger.type` | string | `uvr42` | `uvr42` or `uvr31` |
 | `datalogger.name` | string | the type | Sent as `device` in every telegram, so a consumer can tell several controllers apart |
 | `datalogger.sensors.<key>.label` | string | `T1` … / `A1` … | Name of a temperature or output on the web page |
 | `datalogger.sensors.<key>.min`, `.max` | float | `-20`, `150` | Range of a temperature bar in °C, within −50 … 300; temperatures only |
 | `dlbus.gpio` | int | — | **Required.** GPIO of the DL-Bus input, BCM numbering, 2–27 |
 | `dlbus.debounceTime` | duration | `0s` | Kernel debounce of the input; keep `0s` |
-| `dlbus.gpioTermination` | string | `pullup` | `pullup`, `pulldown` or `none`; the example file sets `none` |
+| `dlbus.gpioTermination` | string | `pullup` | `pullup`, `pulldown` or `none`; `none` only with an external pull-up |
 | `dlbus.bitClock` | int | `0` | Bit clock in Hz; `0` recovers it from the signal |
 | `mqtt.connection` | string | empty | Broker, e.g. `tcp://host:1883` or `tcp://user:password@host:1883`; empty disables MQTT |
 | `mqtt.retained` | bool | `false` | Broker keeps the last message |
