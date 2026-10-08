@@ -547,7 +547,9 @@ The new configuration is loaded and validated **before** anything is stopped. If
 reload is refused with `Config reload rejected, keeping the running configuration` in the log and
 tadl keeps reading with its current settings — fix the file and reload again. A valid file restarts
 tadl's components with the new settings: the GPIO line is reopened and the MQTT client reconnects,
-within a few seconds.
+within a few seconds. Some problems only show then, e.g. a missing TLS certificate or a port or GPIO
+line in use: tadl logs `Start with the new configuration failed, continuing with the previous one`
+and starts again with the settings it ran with before.
 
 ---
 

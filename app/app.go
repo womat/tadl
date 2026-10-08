@@ -131,7 +131,7 @@ func (app *App) Run() (*App, error) {
 	slog.Info("Initializing application")
 
 	if err := app.Init(); err != nil {
-		return app, err
+		return app, app.abort(err)
 	}
 
 	dlbusWatcher, err := app.dlbus.Watch(app.decoder.Bits())
@@ -236,7 +236,10 @@ func (app *App) Init() error {
 	} else {
 		// The broker URL may carry credentials (tcp://user:password@host); never log them.
 		logBroker := redactURL(broker)
-		hostname, _ := os.Hostname()
+		hostname, err := os.Hostname()
+		if err != nil {
+			slog.Warn("Cannot read the host name, the MQTT client ID is not unique", "error", err)
+		}
 		clientID := MODULE + "-" + hostname
 
 		slog.Info("Connecting to MQTT broker", "broker", logBroker, "clientID", clientID)
@@ -262,10 +265,13 @@ func (app *App) Init() error {
 		options = append(options, rpi.WithPullup(gpio.PullDown))
 	}
 
-	if app.pin, err = rpi.NewPin(app.config.DlBus.GPIO, options...); err != nil {
+	// Assigned only on success: a nil *rpi.Pin in the gpio.Pin interface would not be nil.
+	pin, err := rpi.NewPin(app.config.DlBus.GPIO, options...)
+	if err != nil {
 		slog.Error("can't open gpio pin", "gpio", app.config.DlBus.GPIO, "error", err)
 		return err
 	}
+	app.pin = pin
 
 	// Start the Manchester decoder. A bit clock of 0 recovers the clock from
 	// the signal, so any controller is read whatever its bit rate. The
@@ -412,29 +418,40 @@ func (app *App) shutdownProcedure(mode int) {
 func (app *App) Cleanup() error {
 	var errs error
 
-	slog.Info("Stopping GPIO watch", "gpio", app.config.DlBus.GPIO)
-	if err := app.pin.StopWatching(); err != nil {
-		errs = errors.Join(errs, err)
+	// Each part is checked, because after a failed Init only some of them exist.
+	if app.pin != nil {
+		slog.Info("Stopping GPIO watch", "gpio", app.config.DlBus.GPIO)
+		if err := app.pin.StopWatching(); err != nil {
+			errs = errors.Join(errs, err)
+		}
 	}
 
-	slog.Info("Closing DL-Bus decoder")
-	if err := app.dlbus.Close(); err != nil {
-		errs = errors.Join(errs, err)
+	if app.dlbus != nil {
+		slog.Info("Closing DL-Bus decoder")
+		if err := app.dlbus.Close(); err != nil {
+			errs = errors.Join(errs, err)
+		}
 	}
 
-	slog.Info("Closing data logger")
-	if err := app.datalogger.Close(); err != nil {
-		errs = errors.Join(errs, err)
+	if app.datalogger != nil {
+		slog.Info("Closing data logger")
+		if err := app.datalogger.Close(); err != nil {
+			errs = errors.Join(errs, err)
+		}
 	}
 
-	slog.Info("Closing Manchester decoder")
-	if err := app.decoder.Close(); err != nil {
-		errs = errors.Join(errs, err)
+	if app.decoder != nil {
+		slog.Info("Closing Manchester decoder")
+		if err := app.decoder.Close(); err != nil {
+			errs = errors.Join(errs, err)
+		}
 	}
 
-	slog.Info("Closing GPIO pin")
-	if err := app.pin.Close(); err != nil {
-		errs = errors.Join(errs, err)
+	if app.pin != nil {
+		slog.Info("Closing GPIO pin")
+		if err := app.pin.Close(); err != nil {
+			errs = errors.Join(errs, err)
+		}
 	}
 
 	if app.mqtt != nil {
@@ -446,7 +463,8 @@ func (app *App) Cleanup() error {
 }
 
 // abort stops what Run has started so far after a start failure and returns err.
-// The caller exits, so the GPIO pin and the MQTT connection are released here.
+// It releases the GPIO pin, the port and the MQTT connection, so the caller can
+// start another App with the previous configuration, or exit.
 func (app *App) abort(err error) error {
 	app.cancelFunc()
 	app.wg.Wait()
