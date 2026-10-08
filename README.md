@@ -290,6 +290,8 @@ webserver:
 datalogger:
   # Supported types: uvr42 | uvr31
   type: uvr42
+  # Optional: name sent as "device" in every telegram; default is the type.
+  # name: solar
 
   # Optional: names and bar ranges for the web UI, keyed like the data
   # (uvr42: temperature1-4, out1-2; uvr31: temperature1-3, out1).
@@ -365,6 +367,7 @@ mqtt:
 | `webserver.allowedIPs` | list | empty | Addresses or networks (CIDR) that are allowed; empty allows all |
 | `webserver.jwtSecret`, `webserver.jwtID` | string | empty | Optional: also accept a JWT as `Authorization: Bearer`, only when both are set. Not needed for the web page |
 | `datalogger.type` | string | `uvr42` | `uvr42` or `uvr31` |
+| `datalogger.name` | string | the type | Sent as `device` in every telegram, so a consumer can tell several controllers apart |
 | `datalogger.sensors.<key>.label` | string | `T1` … / `A1` … | Name of a temperature or output on the web page |
 | `datalogger.sensors.<key>.min`, `.max` | float | `-20`, `150` | Range of a temperature bar in °C, within −50 … 300; temperatures only |
 | `dlbus.gpio` | int | — | **Required.** GPIO of the DL-Bus input, BCM numbering, 2–27 |
@@ -391,14 +394,15 @@ The values of the controller are published as one JSON object on the topic `topi
 (QoS 0); `/data` returns the same object. A UVR42:
 
 ```
-test/uvr42  {"out1":true,"out2":false,"temperature1":21.5,"temperature2":45.3,"temperature3":-7.2,"temperature4":0,"timestamp":"2026-10-08T14:32:05.123456789+02:00"}
+test/uvr42  {"device":"uvr42","out1":true,"out2":false,"temperature1":21.5,"temperature2":45.3,"temperature3":-7.2,"temperature4":0,"timestamp":"2026-10-08T14:32:05+02:00"}
 ```
 
 | Key | Content |
 |-----|---------|
+| `device` | `datalogger.name`, by default the controller type (`uvr42`, `uvr31`) |
 | `temperature1` … `temperature4` | Temperature in °C, 0.1 °C resolution. A sensor out of range (−50 … 300 °C) is left out |
 | `out1`, `out2` | Output on (`true`) or off (`false`) |
-| `timestamp` | Time the frame was received, RFC 3339 in local time with offset and nanoseconds |
+| `timestamp` | Time the frame was received, RFC 3339 in local time with offset, whole seconds |
 
 A UVR31 sends `temperature1` … `temperature3` and `out1`.
 

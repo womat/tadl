@@ -59,6 +59,9 @@ type Config struct {
 	MinDeltaTemp float64
 	Topic        string
 	Retained     bool
+	// Device names the data logger in every frame under datalogger.KeyDevice,
+	// so a consumer can tell the senders apart. Empty leaves the key out.
+	Device string
 	// StaleAfter is the age after which the last frame no longer counts as current.
 	// 0 disables the check.
 	StaleAfter time.Duration
@@ -113,6 +116,9 @@ func (h *Handler) checkAndUpdate(current keyvalue.Record) (bool, error) {
 		return false, err
 	}
 
+	if h.config.Device != "" {
+		current.Set(datalogger.KeyDevice, h.config.Device)
+	}
 	// Always store the latest frame regardless of whether it triggered a publish.
 	h.DataFrame = current
 	h.track(current)

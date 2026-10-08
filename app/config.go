@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/womat/tadl/pkg/datalogger"
@@ -58,6 +59,8 @@ type DlBusConfig struct {
 
 type DataLoggerConfig struct {
 	Type string `yaml:"type"` // Type of data logger Technische Alternative: uvr42 | uvr31
+	// Name is sent as "device" in every telegram; empty means the type, e.g. "uvr42".
+	Name string `yaml:"name"`
 	// Sensors names the temperatures and outputs in the web UI and sets the range
 	// of each temperature bar, keyed like the data (temperature1, out1, ...). Optional.
 	Sensors map[string]SensorConfig `yaml:"sensors"`
@@ -85,6 +88,15 @@ func deviceType(name string) int {
 		return datalogger.UVR31
 	}
 	return 0
+}
+
+// DeviceName returns the name sent as "device" in every telegram: Name, or the
+// type when Name is empty.
+func (c DataLoggerConfig) DeviceName() string {
+	if n := strings.TrimSpace(c.Name); n != "" {
+		return n
+	}
+	return c.Type
 }
 
 // SensorRange returns the bar range of a temperature, with the defaults filled in.

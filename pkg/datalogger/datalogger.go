@@ -45,6 +45,7 @@ const (
 // Key constants for fields in a decoded keyvalue.Record.
 const (
 	KeyTimestamp    = "timestamp"
+	KeyDevice       = "device" // set by the consumer, not by the decoders
 	KeyTemperature1 = "temperature1"
 	KeyTemperature2 = "temperature2"
 	KeyTemperature3 = "temperature3"

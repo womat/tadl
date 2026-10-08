@@ -3,6 +3,7 @@ package datalogger
 import (
 	"errors"
 	"testing"
+	"time"
 )
 
 // The frames are written out by hand from the DL-Bus protocol description v1.7,
@@ -31,8 +32,10 @@ func TestDecodeUVR42(t *testing.T) {
 	if !r.Bool(KeyOut1) || !r.Bool(KeyOut2) {
 		t.Errorf("outputs = %v/%v, want true/true", r.Bool(KeyOut1), r.Bool(KeyOut2))
 	}
-	if !r.Exists(KeyTimestamp) {
+	if ts, ok := r[KeyTimestamp].(time.Time); !ok {
 		t.Error("timestamp missing")
+	} else if ts.Nanosecond() != 0 {
+		t.Errorf("timestamp %v has a fraction of a second, want whole seconds", ts)
 	}
 }
 

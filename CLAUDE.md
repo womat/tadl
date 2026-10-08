@@ -101,7 +101,7 @@ Data path: GPIO edges (`womat/golib/gpio/rpi`) → `app.decoderEvents` → golib
 
 ### Telegram contract
 
-The MQTT payload and the `/data` response are the same `keyvalue.Record`, marshalled as JSON: `temperature1`…`temperature4` (UVR31: …3), `out1`, `out2` (UVR31: `out1` only), `timestamp` (`time.Time`, RFC 3339 with nanoseconds). It is published to `mqtt.topicPrefix` itself, QoS 0. Changing a key breaks consumers — document it in the README when you do.
+The MQTT payload and the `/data` response are the same `keyvalue.Record`, marshalled as JSON: `device` (`datalogger.name`, default the type; set by `collector`, not the decoders), `temperature1`…`temperature4` (UVR31: …3), `out1`, `out2` (UVR31: `out1` only), `timestamp` (`time.Time`, local time, truncated to whole seconds, RFC 3339). It is published to `mqtt.topicPrefix` itself, QoS 0. Changing a key breaks consumers — document it in the README when you do.
 
 ## Conventions
 

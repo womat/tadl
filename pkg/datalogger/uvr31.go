@@ -137,7 +137,7 @@ func (h *UVR31Handler) decode(b []byte) (keyvalue.Record, []outOfRange, error) {
 		return r, invalid, err
 	}
 
-	r.Set(KeyTimestamp, time.Now())
+	r.Set(KeyTimestamp, time.Now().Truncate(time.Second)) // whole seconds in the telegram
 	r.Set(KeyOut1, b[7]&out1 > 0)
 	return r, invalid, nil
 }

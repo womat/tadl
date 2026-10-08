@@ -86,3 +86,14 @@ func TestValidateSensors(t *testing.T) {
 		}
 	}
 }
+
+func TestDeviceNameDefaultsToType(t *testing.T) {
+	c := DataLoggerConfig{Type: "uvr42"}
+	if got := c.DeviceName(); got != "uvr42" {
+		t.Errorf("DeviceName = %q, want uvr42", got)
+	}
+	c.Name = "  solar "
+	if got := c.DeviceName(); got != "solar" {
+		t.Errorf("DeviceName = %q, want solar", got)
+	}
+}

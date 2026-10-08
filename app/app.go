@@ -303,6 +303,7 @@ func (app *App) Init() error {
 		MinDeltaTemp:    app.config.MQTT.MinDeltaTemp,
 		Topic:           app.config.MQTT.TopicPrefix,
 		Retained:        app.config.MQTT.Retained,
+		Device:          app.config.DataLogger.DeviceName(),
 		StaleAfter:      max(3*app.config.MQTT.PublishInterval, minStaleAfter),
 	},
 		typ)

@@ -53,6 +53,8 @@ webserver:
 datalogger:
   # Supported types: uvr42 | uvr31
   type: uvr42
+  # Optional: name sent as "device" in every telegram; default is the type.
+  # name: solar
 
   # Optional: names and bar ranges for the web UI, keyed like the data
   # (uvr42: temperature1-4, out1-2; uvr31: temperature1-3, out1).

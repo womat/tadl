@@ -46,6 +46,7 @@ func newHandler(minDelta float64) *Handler {
 		PublishInterval: time.Minute,
 		MinDeltaTemp:    minDelta,
 		Topic:           "test/uvr42",
+		Device:          "solar",
 		StaleAfter:      3 * time.Minute,
 	}, datalogger.UVR42)
 	h.now = func() time.Time { return t0 }
@@ -154,8 +155,11 @@ func TestPublishedPayload(t *testing.T) {
 	if err := json.Unmarshal(pub.payloads[0], &got); err != nil {
 		t.Fatalf("payload is not JSON: %v", err)
 	}
-	if got[datalogger.KeyTemperature1] != -7.2 || got[datalogger.KeyOut1] != true {
+	if got[datalogger.KeyTemperature1] != -7.2 || got[datalogger.KeyOut1] != true || got[datalogger.KeyDevice] != "solar" {
 		t.Errorf("payload = %v", got)
+	}
+	if cur, _ := h.Current(); cur.String(datalogger.KeyDevice) != "solar" {
+		t.Errorf("Current device = %q, want solar", cur.String(datalogger.KeyDevice))
 	}
 }
 
