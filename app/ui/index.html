@@ -66,7 +66,7 @@ header {
 .brand .mark .log { stroke: var(--muted); }
 .brand .words { display: flex; flex-direction: column; line-height: 1.1; }
 .brand h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -.01em; }
-.brand h1 b { color: var(--hot); }
+.brand h1 b { color: var(--accent); }
 .sub { font-size: 11px; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); }
 /* The host names the device the page belongs to, so it sits next to the brand. */
 .brand .device { min-width: 0; padding-left: 14px; margin-left: 2px; border-left: 1px solid var(--line); }
@@ -78,9 +78,9 @@ header {
 }
 .signout:hover { color: var(--fg); border-color: var(--muted); }
 .signout svg { width: 14px; height: 14px; }
-.meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; font-size: 13px; color: var(--muted); }
+.meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 13px; color: var(--muted); }
 .num { font-family: var(--font-num); color: var(--fg); }
-.pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
 .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .pill.ok { color: var(--ok); background: var(--ok-soft); }
 .pill.crit { color: var(--crit); background: var(--crit-soft); }

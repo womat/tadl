@@ -108,7 +108,7 @@ def social(browser):
   .brand {{ display: flex; align-items: center; gap: 22px; }}
   svg {{ width: 84px; height: 84px; color: #2563a8; }}
   h1 {{ margin: 0; font-size: 84px; letter-spacing: -.02em; color: #17202b; }}
-  h1 b {{ color: #d2452f; }}
+  h1 b {{ color: #2563a8; }}
   p {{ margin: 0; font-size: 30px; line-height: 1.3; color: #3d4a58; }}
   .tags {{ font-size: 21px; color: #5d6b7a; }}
   img {{ height: 520px; border-radius: 14px; box-shadow: 0 20px 50px rgba(23, 32, 43, .18);
