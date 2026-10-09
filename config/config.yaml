@@ -93,10 +93,11 @@ dlbus:
   bitClock: 0
 
 # =============================================================================
-# MQTT configuration
+# MQTT configuration (on when this block is present; delete or comment it out to run
+# without MQTT)
 # =============================================================================
 mqtt:
-  # Broker connection string (empty = MQTT disabled)
+  # Broker connection string, required
   # Format: tcp://host:port
   connection: "tcp://mqtt.example.com:1883"
 

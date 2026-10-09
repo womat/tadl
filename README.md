@@ -113,7 +113,7 @@ sudo chown -R tadl:tadl /opt/tadl
 
 **3. Configure** `/opt/tadl/etc/config.yaml`: set `env: prod`, a random `apiKey`
 (`openssl rand -hex 24`), the controller `type`, the GPIO pin and your MQTT broker (or
-`connection: ""`) — see [Configuration](#configuration) and [Wiring](#wiring).
+delete the `mqtt` block) — see [Configuration](#configuration) and [Wiring](#wiring).
 
 **4. Start** it as a service and open the firewall:
 
@@ -331,10 +331,11 @@ dlbus:
   bitClock: 0
 
 # =============================================================================
-# MQTT configuration
+# MQTT configuration (on when this block is present; delete or comment it out to run
+# without MQTT)
 # =============================================================================
 mqtt:
-  # Broker connection string (empty = MQTT disabled)
+  # Broker connection string, required
   # Format: tcp://host:port
   connection: "tcp://mqtt.example.com:1883"
 
@@ -376,9 +377,10 @@ mqtt:
 | `dlbus.debounceTime` | duration | `0s` | Kernel debounce of the input; keep `0s` |
 | `dlbus.gpioTermination` | string | `pullup` | `pullup`, `pulldown` or `none`; `none` only with an external pull-up |
 | `dlbus.bitClock` | int | `0` | Bit clock in Hz; `0` recovers it from the signal |
-| `mqtt.connection` | string | empty | Broker, e.g. `tcp://host:1883` or `tcp://user:password@host:1883`; empty disables MQTT |
+| `mqtt` | block | — | MQTT is on when the block is present; delete or comment it out to run without MQTT |
+| `mqtt.connection` | string | — | **Required in the block.** Broker, e.g. `tcp://host:1883` or `tcp://user:password@host:1883` |
 | `mqtt.retained` | bool | `false` | Broker keeps the last message |
-| `mqtt.topicPrefix` | string | — | Topic the values are published to; required with a broker |
+| `mqtt.topicPrefix` | string | — | **Required in the block.** Topic the values are published to |
 | `mqtt.publishInterval` | duration | `10s` | Heartbeat, at least `1s` |
 | `mqtt.minDeltaTemp` | float | `0` | Temperature change in Kelvin that triggers a publish; `0` disables the trigger |
 
@@ -448,7 +450,7 @@ curl -k -H "X-Api-Key: your-api-key" https://<your-pi>:8443/health
 
 `/health` reports, besides the runtime metrics (`app`, `appVersion`, `goVersion`, `hostname`, `os`,
 `uptimeSeconds`, memory, goroutines, `timestamp`), the MQTT connection as `mqtt` (`connected`,
-`disconnected` — also while reconnecting — or `disabled` without a broker), the controller and the
+`disconnected` — also while reconnecting — or `disabled` without an `mqtt` block), the controller and the
 bus — everything the web page shows:
 
 ```json
@@ -653,6 +655,18 @@ like `1.7.0-3-g0c13781-dirty` instead, which is how the two are told apart on a 
 
 Building from source needs Go and `make`: clone the repository and run `make help` for the targets;
 [`CLAUDE.md`](CLAUDE.md) describes the architecture, the tests and the release process.
+
+### Upgrading to 2.0.0
+
+MQTT is switched by the presence of the `mqtt` block instead of an empty `connection`:
+
+| 1.x                                   | 2.0.0                                                  |
+|---------------------------------------|--------------------------------------------------------|
+| `mqtt.connection: ""` turns MQTT off  | delete or comment out the `mqtt` block                 |
+| no `mqtt` block: defaults, MQTT off   | unchanged: MQTT off                                    |
+| `mqtt` block with a broker            | unchanged                                              |
+
+An `mqtt` block without `connection` is refused with a message that says so.
 
 ---
 

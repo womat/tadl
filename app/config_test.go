@@ -3,14 +3,14 @@ package app
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func validConfig() *Config {
 	c := NewConfig()
 	c.Webserver.ApiKey = "a-long-enough-test-key"
 	c.DlBus.GPIO = 20
-	c.MQTT.Connection = "tcp://broker:1883"
-	c.MQTT.TopicPrefix = "test/uvr42"
+	c.MQTT = &MQTTConfig{Connection: "tcp://broker:1883", TopicPrefix: "test/uvr42"}
 	return c
 }
 
@@ -20,12 +20,33 @@ func TestValidateAcceptsValidConfig(t *testing.T) {
 	}
 }
 
-func TestValidateMQTTDisabledNeedsNoTopic(t *testing.T) {
+func TestValidateWithoutMQTTBlock(t *testing.T) {
+	c := validConfig()
+	c.MQTT = nil
+	if err := c.Validate(); err != nil {
+		t.Fatalf("Validate without mqtt block: %v", err)
+	}
+	if got := c.mqttSettings().PublishInterval; got != defaultPublishInterval {
+		t.Errorf("publishInterval without mqtt block = %v, want the default %v for the staleness", got, defaultPublishInterval)
+	}
+}
+
+// A present block must be complete: an empty connection used to mean "MQTT off".
+func TestValidateMQTTBlockNeedsConnection(t *testing.T) {
 	c := validConfig()
 	c.MQTT.Connection = ""
-	c.MQTT.TopicPrefix = ""
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "delete the mqtt block") {
+		t.Fatalf("Validate with empty connection: err=%v, want the hint to delete the mqtt block", err)
+	}
+}
+
+func TestValidateMQTTDefaults(t *testing.T) {
+	c := validConfig()
 	if err := c.Validate(); err != nil {
-		t.Fatalf("Validate with MQTT disabled: %v", err)
+		t.Fatal(err)
+	}
+	if c.MQTT.PublishInterval != defaultPublishInterval {
+		t.Errorf("publishInterval = %v, want the default %v", c.MQTT.PublishInterval, defaultPublishInterval)
 	}
 }
 
@@ -39,7 +60,7 @@ func TestValidateMQTTEnabledNeedsTopic(t *testing.T) {
 
 func TestValidateErrorsNameTheConfigKeys(t *testing.T) {
 	c := validConfig()
-	c.MQTT.PublishInterval = 0
+	c.MQTT.PublishInterval = 500 * time.Millisecond
 	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "publishInterval") {
 		t.Errorf("publishInterval error = %v", err)
 	}

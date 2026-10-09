@@ -26,7 +26,7 @@ type Config struct {
 	LogLevel       string           `yaml:"logLevel"`       // Log level: debug | info | warning | error
 	LogDestination string           `yaml:"logDestination"` // Log output: stdout | stderr | /path/to/logfile
 	Webserver      WebserverConfig  `yaml:"webserver"`      // Webserver configuration
-	MQTT           MQTTConfig       `yaml:"mqtt"`           // MQTT client configuration
+	MQTT           *MQTTConfig      `yaml:"mqtt"`           // MQTT client configuration; nil = no MQTT
 	DlBus          DlBusConfig      `yaml:"dlbus"`          // DL-Bus configuration
 	DataLogger     DataLoggerConfig `yaml:"datalogger"`     // Data logger configuration
 
@@ -43,12 +43,26 @@ type WebserverConfig struct {
 	AllowedIPs []string `yaml:"allowedIPs"` // Allowed IP addresses or networks
 }
 
+// MQTTConfig holds MQTT client settings. MQTT is on when the mqtt block is present.
 type MQTTConfig struct {
-	Connection      string        `yaml:"connection"`      // Broker connection string
+	Connection      string        `yaml:"connection"`      // Broker connection string, required
 	Retained        bool          `yaml:"retained"`        // Whether messages are retained
-	PublishInterval time.Duration `yaml:"publishInterval"` // publish interval in Go duration string (e.g. "60s")
-	TopicPrefix     string        `yaml:"topicPrefix"`     // MQTT topic prefix for meter data
+	PublishInterval time.Duration `yaml:"publishInterval"` // publish interval in Go duration string (default 10s)
+	TopicPrefix     string        `yaml:"topicPrefix"`     // MQTT topic prefix for meter data, required
 	MinDeltaTemp    float64       `yaml:"minDeltaTemp"`    // Minimum temperature change in Kelvin to trigger an update
+}
+
+// defaultPublishInterval applies to a present mqtt block without publishInterval, and to the
+// staleness of the data when there is no mqtt block.
+const defaultPublishInterval = 10 * time.Second
+
+// mqttSettings returns the MQTT settings the collector works with: the mqtt block, or the
+// defaults without one.
+func (c *Config) mqttSettings() MQTTConfig {
+	if c.MQTT == nil {
+		return MQTTConfig{PublishInterval: defaultPublishInterval}
+	}
+	return *c.MQTT
 }
 
 type DlBusConfig struct {
@@ -112,6 +126,35 @@ func (s SensorConfig) SensorRange() (lo, hi float64) {
 	return lo, hi
 }
 
+// validate applies the defaults of a present mqtt block and checks it; a nil block (no MQTT)
+// is valid.
+func (m *MQTTConfig) validate() error {
+	if m == nil {
+		return nil
+	}
+
+	if m.Connection == "" {
+		return errors.New("mqtt connection is required; delete the mqtt block to run without MQTT")
+	}
+
+	if m.PublishInterval == 0 {
+		m.PublishInterval = defaultPublishInterval
+	}
+	if m.PublishInterval < time.Second {
+		return fmt.Errorf("mqtt publishInterval must be at least 1s, got %v", m.PublishInterval)
+	}
+
+	if m.TopicPrefix == "" {
+		return fmt.Errorf("mqtt topicPrefix must be configured")
+	}
+
+	if m.MinDeltaTemp < 0 {
+		return fmt.Errorf("mqtt minDeltaTemp must be non-negative, got %v", m.MinDeltaTemp)
+	}
+
+	return nil
+}
+
 // NewConfig returns a Config with sane defaults
 func NewConfig() *Config {
 	return &Config{
@@ -123,10 +166,6 @@ func NewConfig() *Config {
 			ListenPort: 8443,
 			BlockedIPs: []string{},
 			AllowedIPs: []string{},
-		},
-		MQTT: MQTTConfig{
-			Connection:      "", // e.g. "tcp://mqtt.example.com:1883", empty means MQTT is disabled
-			PublishInterval: 10 * time.Second,
 		},
 		DlBus: DlBusConfig{
 			DebounceTime:    0,
@@ -204,16 +243,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid port: %d", c.Webserver.ListenPort)
 	}
 
-	if c.MQTT.PublishInterval < time.Second {
-		return fmt.Errorf("mqtt publishInterval must be at least 1s, got %v", c.MQTT.PublishInterval)
-	}
-
-	if c.MQTT.Connection != "" && c.MQTT.TopicPrefix == "" {
-		return fmt.Errorf("mqtt topicPrefix must be configured")
-	}
-
-	if c.MQTT.MinDeltaTemp < 0 {
-		return fmt.Errorf("mqtt minDeltaTemp must be non-negative, got %v", c.MQTT.MinDeltaTemp)
+	if err := c.MQTT.validate(); err != nil {
+		return err
 	}
 
 	validGPIOs := []int{2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27}

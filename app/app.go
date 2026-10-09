@@ -231,9 +231,10 @@ func (app *App) Run() (*App, error) {
 func (app *App) Init() error {
 	var err error
 
-	if broker := app.config.MQTT.Connection; broker == "" {
-		slog.Info("MQTT disabled, no broker configured")
+	if app.config.MQTT == nil {
+		slog.Info("MQTT disabled, no mqtt block configured")
 	} else {
+		broker := app.config.MQTT.Connection
 		// The broker URL may carry credentials (tcp://user:password@host); never log them.
 		logBroker := redactURL(broker)
 		hostname, err := os.Hostname()
@@ -304,13 +305,14 @@ func (app *App) Init() error {
 		slog.Error("Unsupported data logger", "type", t)
 		return fmt.Errorf("unsupported data logger type: %q", t)
 	}
+	mqttSettings := app.config.mqttSettings()
 	app.dataloggerService = collector.New(collector.Config{
-		PublishInterval: app.config.MQTT.PublishInterval,
-		MinDeltaTemp:    app.config.MQTT.MinDeltaTemp,
-		Topic:           app.config.MQTT.TopicPrefix,
-		Retained:        app.config.MQTT.Retained,
+		PublishInterval: mqttSettings.PublishInterval,
+		MinDeltaTemp:    mqttSettings.MinDeltaTemp,
+		Topic:           mqttSettings.TopicPrefix,
+		Retained:        mqttSettings.Retained,
 		Device:          app.config.DataLogger.DeviceName(),
-		StaleAfter:      max(3*app.config.MQTT.PublishInterval, minStaleAfter),
+		StaleAfter:      max(3*mqttSettings.PublishInterval, minStaleAfter),
 	},
 		typ)
 
