@@ -111,5 +111,5 @@ The MQTT payload and the `/data` response are the same `keyvalue.Record`, marsha
 - Logging is `log/slog` with key/value pairs throughout; `slog.SetDefault` is set in `cmd`. Do not use `fmt.Print` outside pre-logger startup and `--about`/`--version`/`--help`.
 - Doc comments: every package and exported symbol is documented, in English, and Swagger annotations live directly on the handlers.
 - Config field docs live in `README.md` (example and reference table) and `config/config.yaml` — update both when adding a config key. `cmd/README.md` is the short `--help` text and only points to them. `README.de.md` is a short German summary.
-- Commit subjects use the prefixes `feat()`, `fix()`, `docu()`, `chore()`, `refactor()`. The release changelog groups on them (`.goreleaser.yaml`), and anything unprefixed lands under "Other". Note it is `docu()`, not `docs()`.
+- Commit subjects follow Conventional Commits, `type(scope): description` with an optional scope (`fix: default port 8443`, `feat(ui): …`), types `feat`, `fix`, `docu`, `chore`, `refactor`. The release changelog groups on them (`.goreleaser.yaml`), and anything unprefixed lands under "Other". Note it is `docu`, not `docs`.
 - Example host names, broker addresses and users stay neutral (`mqtt.example.com`, `raspberrypi`); this repository is public.
