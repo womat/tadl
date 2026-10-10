@@ -656,6 +656,7 @@ a breaking change of the API, the telegram or the configuration raises the major
 like `1.7.0-3-g0c13781-dirty` instead, which is how the two are told apart on a device.
 
 Building from source needs Go and `make`: clone the repository and run `make help` for the targets;
+`make test` runs the tests (Linux only), `make lint` vet, golangci-lint and govulncheck, as CI does;
 [`CLAUDE.md`](CLAUDE.md) describes the architecture, the tests and the release process.
 
 ### Upgrading to 2.0.0

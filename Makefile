@@ -66,7 +66,7 @@ LDFLAGS := -X 'main.buildDate=$(BUILD_DATE)' \
            -X 'main.buildCommit=$(BUILD_COMMIT)' \
            -X 'github.com/womat/tadl/app.VERSION=$(VERSION)'
 
-.PHONY: all test release deploy_release deploy deploy_dev deploy_sim clean help ensure_dev_certs
+.PHONY: all test lint release deploy_release deploy deploy_dev deploy_sim clean help ensure_dev_certs
 
 all: help
 
@@ -82,6 +82,22 @@ clean: ## Remove build related file
 #   docker run --rm -v "$$PWD":/src -w /src golang:1.27 make test
 test: ensure_dev_certs ## run all tests with the race detector (Linux only, see comment for macOS)
 	GOOS=linux go test -race ./...
+
+# Static checks for the deploy target $(PI_ARCH): vet, golangci-lint (.golangci.yml)
+# and govulncheck. The tools are pinned like in ci.yml (dependabot does not see these
+# lines - raise them by hand) and installed into bin/tools for the host: `go run`
+# under GOOS=linux would build a Linux binary that macOS cannot execute. Only the
+# analysis gets the target environment, because the GPIO backend compiles for Linux only.
+GOLANGCI_LINT_VERSION := v2.14.0
+GOVULNCHECK_VERSION   := v1.8.0
+TOOLS_DIR             := $(CURDIR)/bin/tools
+
+lint: ensure_dev_certs ## go vet, golangci-lint and govulncheck for $(PI_ARCH) (runs on macOS too)
+	GOBIN=$(TOOLS_DIR) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	GOBIN=$(TOOLS_DIR) go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+	$(GOENV_$(PI_ARCH)) go vet ./...
+	$(GOENV_$(PI_ARCH)) $(TOOLS_DIR)/golangci-lint run ./...
+	$(GOENV_$(PI_ARCH)) $(TOOLS_DIR)/govulncheck ./...
 
 ensure_dev_certs:
 	@mkdir -p $(DEV_CERT_DIR)
