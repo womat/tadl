@@ -87,7 +87,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Retrieves memory usage, goroutine count, version, hostname, Go runtime version and OS, the MQTT connection state,\nthe latest controller values with their names, bar ranges and 15 min trend, and the state of the DL-Bus input\n(signal, bit rate, line polarity, error counters since start and for the last 24 h). The web UI at / reads it.",
+                "description": "Retrieves memory usage, goroutine count, version, hostname, Go runtime version and OS, the MQTT connection state\nwith broker (host:port, never credentials) and topic,\nthe latest controller values with their names, bar ranges and 15 min trend, and the state of the DL-Bus input\n(signal, bit rate, line polarity, error counters since start and for the last 24 h). The web UI at / reads it.",
                 "produces": [
                     "application/json"
                 ],
@@ -319,6 +319,14 @@ const docTemplate = `{
                 },
                 "mqtt": {
                     "description": "connected | disconnected | disabled",
+                    "type": "string"
+                },
+                "mqttBroker": {
+                    "description": "broker host:port, never user or password; absent without MQTT",
+                    "type": "string"
+                },
+                "mqttTopic": {
+                    "description": "topic the values are published to; absent without MQTT",
                     "type": "string"
                 },
                 "numGoroutines": {

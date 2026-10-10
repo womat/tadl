@@ -450,8 +450,10 @@ curl -k -H "X-Api-Key: your-api-key" https://<your-pi>:8443/health
 
 `/health` reports, besides the runtime metrics (`app`, `appVersion`, `goVersion`, `hostname`, `os`,
 `uptimeSeconds`, memory, goroutines, `timestamp`), the MQTT connection as `mqtt` (`connected`,
-`disconnected` — also while reconnecting — or `disabled` without an `mqtt` block), the controller and the
-bus — everything the web page shows:
+`disconnected` — also while reconnecting — or `disabled` without an `mqtt` block) with `mqttBroker`
+(host and port only — a user or password in `mqtt.connection` is never sent) and `mqttTopic`, both left
+out without an `mqtt` block, the controller and the bus — everything the web page shows (broker and
+topic as the tooltip of the MQTT pill):
 
 ```json
 "datalogger": {
