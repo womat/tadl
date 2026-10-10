@@ -387,6 +387,7 @@ function render(health) {
   const state = { connected: ["ok", "MQTT connected"], disconnected: ["crit", "MQTT disconnected"], disabled: ["off", "MQTT not configured"] }[health.mqtt] || ["off", "MQTT unknown"];
   mq.className = "pill " + state[0];
   mq.textContent = state[1];
+  mq.title = health.mqttBroker ? `${health.mqttBroker} · topic ${health.mqttTopic}` : health.mqtt === "disabled" ? "no mqtt block in the configuration" : "";
   $("version").textContent = health.appVersion;
   $("host").textContent = health.hostname;
   document.title = `tadl · ${health.hostname}`;

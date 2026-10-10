@@ -67,9 +67,11 @@ type Model struct {
 	SysMemoryBytes uint64  `json:"sysMemoryBytes"` // Total memory obtained from the OS
 	Timestamp      string  `json:"timestamp"`      // UTC timestamp when health info was collected (RFC3339)
 
-	Mqtt       string                      `json:"mqtt"`       // connected | disconnected | disabled
-	Datalogger *collector.DataloggerStatus `json:"datalogger"` // latest values of the controller
-	Bus        *BusStatus                  `json:"bus"`        // state of the DL-Bus input
+	Mqtt       string                      `json:"mqtt"`                 // connected | disconnected | disabled
+	MqttBroker string                      `json:"mqttBroker,omitempty"` // broker host:port, never user or password; absent without MQTT
+	MqttTopic  string                      `json:"mqttTopic,omitempty"`  // topic the values are published to; absent without MQTT
+	Datalogger *collector.DataloggerStatus `json:"datalogger"`           // latest values of the controller
+	Bus        *BusStatus                  `json:"bus"`                  // state of the DL-Bus input
 }
 
 var startTime = time.Now() // Tracks application start time

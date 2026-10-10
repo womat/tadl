@@ -45,6 +45,7 @@ def health():
     return {
         "app": "tadl", "appVersion": "1.7.0", "hostname": "pi-heating", "os": "linux",
         "uptimeSeconds": UPTIME, "mqtt": "connected",
+        "mqttBroker": "192.168.1.5:1883", "mqttTopic": "tadl",
         "datalogger": {
             "type": "uvr42", "current": True,
             "lastFrame": (now - timedelta(seconds=2)).isoformat(), "lastFrameAgeSeconds": 2,
