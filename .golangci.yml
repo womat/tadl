@@ -1,0 +1,33 @@
+# golangci-lint configuration for github.com/womat/tadl, run by make lint and CI.
+#
+# Run it with GOOS=linux (make lint does): every linter needs full type
+# information, and the GPIO backend (womat/golib/gpio/rpi) only compiles for
+# Linux, so on macOS the run aborts with `undefined: uapi.*`.
+#
+# The default linter set is kept. The exclusions below are decisions, not
+# convenience - each one says why, as in golib.
+
+version: "2"
+
+linters:
+  settings:
+    errcheck:
+      # golib's convention is that every resource-owning type has an explicit
+      # Close that callers defer. A deferred Close at the end of the process has
+      # nowhere to return an error to: the log file is the destination it would
+      # be reported to, and dlbussim's GPIO line is released by the kernel on
+      # exit anyway. Listed explicitly rather than switching errcheck off, so an
+      # unchecked error from anything else still gets reported; the logger that
+      # is closed on a reload is checked and logged in cmd/main.go.
+      exclude-functions:
+        - (*github.com/womat/golib/xlog.LoggerWrapper).Close
+        - (github.com/womat/golib/gpio.Pin).Close
+
+  exclusions:
+    rules:
+      # Test code may ignore what it is not asserting on: a deferred Close, a
+      # frame fed in only to build up state that the test then checks by other
+      # means.
+      - path: _test\.go
+        linters:
+          - errcheck

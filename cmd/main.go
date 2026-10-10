@@ -120,7 +120,10 @@ func run(configFile string, debug bool) int {
 		default:
 			slog.SetDefault(newLogger.Logger)
 			if logger != nil {
-				logger.Close()
+				// Reported through the new logger, which is already in place.
+				if err := logger.Close(); err != nil {
+					slog.Warn("Failed to close the previous log destination", "error", err)
+				}
 			}
 			logger = newLogger
 			slog.Info("Logging initialized/reloaded", "logLevel", config.LogLevel)

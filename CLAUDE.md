@@ -25,6 +25,7 @@ make deploy            # build locally, then scp to $(PI_USER)@$(PI_HOST):$(PI_P
 make deploy_sim        # the same for dlbussim
 make deploy_release TAG=vX.Y.Z   # download a published release, verify, scp
 make release TAG=vX.Y.Z          # tag main and push, see Releases
+make lint              # vet, golangci-lint (.golangci.yml) and govulncheck for PI_ARCH; works on macOS
 make clean
 make help              # the authoritative list of targets
 ```
@@ -53,7 +54,9 @@ Versioning is SemVer and the Git tag is the single source of truth. `VERSION` (`
 
 Two things to keep in mind when touching `.goreleaser.yaml`: its `before` hook must keep running `make ensure_dev_certs` (GoReleaser calls `go build` directly, so the `//go:embed`-ed dev certs would otherwise be missing), and archives must keep shipping `README.md` — it carries the third-party license overview, and the statically linked Paho MQTT client is EPL-2.0. Validate changes with `goreleaser check` and `goreleaser release --snapshot --clean`.
 
-`.github/workflows/ci.yml` runs on every push/PR against `main`: `make test` with the race detector, and a build matrix over armv6/armv7/arm64 with vet, a plain and a `-tags swagger` build and govulncheck. `release.yml` repeats test, vet and govulncheck on the tagged commit before GoReleaser publishes. `.github/dependabot.yml` updates actions and Go modules. Check the workflow files for the exact jobs when you change them.
+`.github/workflows/ci.yml` runs on every push/PR against `main`: `make test` with the race detector, and a build matrix over armv6/armv7/arm64 with vet, a plain and a `-tags swagger` build, golangci-lint and govulncheck. `release.yml` repeats test, vet and govulncheck on the tagged commit before GoReleaser publishes. `.github/dependabot.yml` updates actions and Go modules, but not the `go install` pins of govulncheck and golangci-lint (ci.yml, release.yml, the Makefile's `lint` target) — raise those by hand.
+
+golangci-lint runs with the default linters; every exclusion in `.golangci.yml` is a decision with a why-comment (errcheck is off in `_test.go`, and the deferred `Close` of golib's logger and GPIO pin is listed in `exclude-functions` instead of switching errcheck off). Fix a new finding rather than widening an exclusion. Like vet, it needs `GOOS=linux`, which `make lint` sets. Check the workflow files for the exact jobs when you change them.
 
 ### Swagger
 
