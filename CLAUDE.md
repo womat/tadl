@@ -113,3 +113,20 @@ The MQTT payload and the `/data` response are the same `keyvalue.Record`, marsha
 - Config field docs live in `README.md` (example and reference table) and `config/config.yaml` — update both when adding a config key. `cmd/README.md` is the short `--help` text and only points to them. `README.de.md` is a short German summary.
 - Commit subjects follow Conventional Commits, `type(scope): description` with an optional scope (`fix: default port 8443`, `feat(ui): …`), types `feat`, `fix`, `docu`, `chore`, `refactor`. The release changelog groups on them (`.goreleaser.yaml`), and anything unprefixed lands under "Other". Note it is `docu`, not `docs`.
 - Example host names, broker addresses and users stay neutral (`mqtt.example.com`, `raspberrypi`); this repository is public.
+
+## Planned
+
+- **A typed `Frame` struct instead of `keyvalue.Record`** (decided 11 October 2026). A
+  controller frame has a fixed shape, so a struct lets the compiler check what today is a string
+  key and a conversion at run time (`r.Float64("temperature1")`). It replaces the record in
+  `pkg/datalogger` (decoders), `app/service/collector` (`hasChanged`, `track`, `Current`) and
+  the `/data` response. Two constraints:
+  - **A sensor can be absent.** Temperatures outside −50 … 300 °C are left out, and
+    `hasChanged` treats a sensor appearing or disappearing as a change. The struct has to model
+    "no value" (e.g. `*float64` per sensor, or a value with a `valid` flag), not a plain slice.
+  - **The JSON stays byte-identical.** MQTT payload and `/data` keep the keys `device`,
+    `temperature1`…`temperature4` (UVR31: …3), `out1`, `out2` (UVR31: `out1`), `timestamp`,
+    and an absent sensor stays absent rather than becoming `null` — via `omitempty` on pointers
+    or a `MarshalJSON`. Consumers must not notice; pin it with a golden test before the change.
+
+  Afterwards tadl no longer imports `womat/golib/keyvalue`; it is the only user.
