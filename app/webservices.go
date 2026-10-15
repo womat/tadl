@@ -41,6 +41,15 @@ var embeddedKeyFile []byte
 // - Development fallback: embedded self-signed cert
 // - Non-blocking: runs in goroutine
 // - Graceful shutdown on app.ctx cancellation
+// newTLSConfig serves cert with TLS 1.3 only. Every caller in this setup (browsers, Node-RED on
+// Node 20, curl) speaks it, and 1.3 leaves no cipher suite to choose badly.
+func newTLSConfig(cert tls.Certificate) *tls.Config {
+	return &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS13,
+	}
+}
+
 func (app *App) StartWebServer() error {
 	// Set default timeouts
 	app.web.ReadTimeout = defaultReadTimeout
@@ -53,10 +62,7 @@ func (app *App) StartWebServer() error {
 		return fmt.Errorf("failed to load TLS certificate: %w", err)
 	}
 
-	// Assign TLS config
-	app.web.TLSConfig = &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		MinVersion:   tls.VersionTLS12}
+	app.web.TLSConfig = newTLSConfig(cert)
 
 	// Create listener
 	listener, err := net.Listen("tcp", app.web.Addr)
