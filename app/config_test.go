@@ -8,7 +8,7 @@ import (
 
 func validConfig() *Config {
 	c := NewConfig()
-	c.Webserver.TokenFile = "/opt/tadl/etc/tokens"
+	c.Webserver.TokenFile = "/opt/tadl/etc/token-hashes"
 	c.DlBus.GPIO = 20
 	c.MQTT = &MQTTConfig{Connection: "tcp://broker:1883", TopicPrefix: "test/uvr42"}
 	return c
@@ -144,7 +144,7 @@ func TestLoadConfigExpandsBracedVariablesOnly(t *testing.T) {
 	}
 }
 
-// The example names /opt/tadl/etc/tokens, which does not exist here, so only the config file
+// The example names /opt/tadl/etc/token-hashes, which does not exist here, so only the config file
 // itself is read.
 func TestLoadConfigExample(t *testing.T) {
 	c, err := readConfig("../config/config.yaml")
