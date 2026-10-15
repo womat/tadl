@@ -48,7 +48,8 @@ No cloud, no database, no runtime: a single binary, configured with one YAML fil
   dark mode
 - **MQTT** publishing at an interval plus a delta trigger (`minDeltaTemp`); a changed output is sent
   at once
-- **HTTPS REST API** with API key, IP allowlist / blocklist
+- **HTTPS REST API** (TLS 1.3) with one bearer token per caller, stored only as a SHA-256 hash and
+  managed with `tadl token`; IP allowlist / blocklist; the log names who calls
 - **Hot reload** of the configuration via `SIGHUP`; a broken file is refused, the running
   configuration stays
 - **Controller emulator** `dlbussim` for testing without a controller
@@ -96,54 +97,51 @@ sha256sum -c checksums.txt --ignore-missing
 tar xzf tadl_${VERSION}_linux_$ARCH.tar.gz
 ```
 
-**2. Install** binary, example configuration and a certificate:
+**2. Install** binary, example configuration and a certificate. Everything belongs to root; the
+service user `tadl` may read `etc/` and write nothing:
 
 ```sh
 sudo groupadd -r -f tadl
 sudo useradd -r -s /usr/sbin/nologin -g tadl tadl
 sudo usermod -aG gpio tadl
-sudo mkdir -p /opt/tadl/{bin,etc}
+sudo install -d -o root -g root -m 755 /opt/tadl /opt/tadl/bin
+sudo install -d -o root -g tadl -m 750 /opt/tadl/etc
 
-sudo install -m 755 tadl /opt/tadl/bin/
-sudo install -m 640 config/config.yaml /opt/tadl/etc/
+sudo install -o root -g root -m 755 tadl /opt/tadl/bin/
+sudo install -o root -g tadl -m 640 config/config.yaml /opt/tadl/etc/
 sudo openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
   -keyout /opt/tadl/etc/key.pem -out /opt/tadl/etc/cert.pem -subj "/CN=$(hostname)"
-sudo chown -R tadl:tadl /opt/tadl
+sudo chown root:tadl /opt/tadl/etc/key.pem /opt/tadl/etc/cert.pem
+sudo chmod 640 /opt/tadl/etc/key.pem
 ```
 
-**3. Configure** `/opt/tadl/etc/config.yaml`: set `env: prod`, a random `apiKey`
-(`openssl rand -hex 24`), the controller `type`, the GPIO pin and your MQTT broker (or
-delete the `mqtt` block) — see [Configuration](#configuration) and [Wiring](#wiring).
+Why root: whoever can write `config.yaml` or the token file can add a token of their own, and
+whoever can write `bin/tadl` can replace the program. tadl itself needs neither.
 
-**4. Start** it as a service and open the firewall:
+**3. Configure** `/opt/tadl/etc/config.yaml`: set `env: prod`, the controller `type`, the GPIO pin
+and your MQTT broker (or delete the `mqtt` block) — see [Configuration](#configuration) and
+[Wiring](#wiring). Then create a token for each caller, here the browser:
 
 ```sh
-sudo tee /etc/systemd/system/tadl.service > /dev/null <<'EOF'
-[Unit]
-Description=tadl - data logger for the DL-Bus of Technische Alternative
-After=network-online.target
-Wants=network-online.target
+sudo /opt/tadl/bin/tadl token add browser
+```
 
-[Service]
-User=tadl
-Group=tadl
-Type=simple
-ExecStart=/opt/tadl/bin/tadl
-ExecReload=/bin/kill -HUP $MAINPID
-Restart=on-failure
-RestartSec=5
+It prints the token once; keep it, e.g. in a password manager. See [Tokens](#tokens).
 
-[Install]
-WantedBy=multi-user.target
-EOF
+**4. Start** it as a service, with the unit from the archive, and open the firewall:
 
+```sh
+sudo install -m 644 contrib/tadl.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now tadl
 sudo ufw allow 8443/tcp          # if ufw is active
 journalctl -u tadl -n 20         # "Module started successfully"
 ```
 
-**5. Open** `https://<your-pi>:8443/`, accept the self-signed certificate and enter the API key.
+The unit runs tadl in a sandbox: no capabilities, a read-only system, only the GPIO chip as a
+device (`systemd-analyze security tadl` rates it about 1.4 instead of 9.2 without).
+
+**5. Open** `https://<your-pi>:8443/`, accept the self-signed certificate and enter the token.
 
 ---
 
@@ -200,9 +198,9 @@ straight to the input with a plain wire (GPIO21 to GPIO20); a real DL-Bus never.
 
 ## Web UI
 
-Open `https://<host>:8443/` in a browser and enter the API key once; it is kept in that browser's
-local storage only and sent as `X-API-Key` to `/health`. **Sign out** removes it, and a rejected key
-brings the prompt back. The page refreshes every 3 s while the tab is visible and shows:
+Open `https://<host>:8443/` in a browser and enter a token once (`tadl token add browser`); it is
+kept in that browser's local storage only and sent as a bearer token to `/health`. **Sign out**
+removes it, and a rejected token brings the prompt back. The page refreshes every 3 s while the tab is visible and shows:
 
 - the temperatures of the controller, each with a bar on its own range and the change over the
   last 15 minutes, and the outputs on or off. Names and ranges come from `datalogger.sensors`;
@@ -223,11 +221,11 @@ restart or a reload.
 
 Default location: `/opt/tadl/etc/config.yaml`
 
-- `${VAR}` is replaced with the environment variable `VAR`, e.g. `apiKey: ${TADL_API_KEY}`; an unset
-  variable becomes empty. Only this form is expanded; a bare `$` stays as it is, so keys and
-  passwords may contain it.
+- `${VAR}` is replaced with the environment variable `VAR`, e.g.
+  `connection: tcp://tadl:${MQTT_PASSWORD}@broker:1883`; an unset variable becomes empty. Only this
+  form is expanded; a bare `$` stays as it is, so passwords may contain it.
 - The configuration is validated on start and before every reload: `env` is `dev` or `prod`,
-  `apiKey` is set, `logLevel` is known, the port is 1–65535, `publishInterval` is at least `1s`,
+  `tokenFile` is set and readable, `logLevel` is known, the port is 1–65535, `publishInterval` is at least `1s`,
   `topicPrefix` is set when MQTT is enabled, `minDeltaTemp`, `debounceTime` and `bitClock` are not
   negative, the GPIO is between 2 and 27, `gpioTermination` and `type` are known, and every
   `datalogger.sensors` entry names a key of the configured controller.
@@ -262,8 +260,10 @@ webserver:
   # Port the HTTPS server listens on
   listenPort: 8443
 
-  # Global API key for protected endpoints
-  apiKey: changeme!
+  # Bearer tokens accepted on the protected endpoints, one "<name> <sha256>" per line.
+  # Manage it with "tadl token add|remove|list"; a relative path is relative to this file.
+  # The file holds hashes only, but whoever can write it can add a token: owner root.
+  tokenFile: /opt/tadl/etc/tokens
 
   # TLS private key file
   keyFile: /opt/tadl/etc/key.pem
@@ -364,7 +364,7 @@ mqtt:
 | `env` | string | `dev` | `dev` or `prod`; see [TLS certificate](#tls-certificate) |
 | `webserver.listenHost` | string | `0.0.0.0` | Address the HTTPS server listens on |
 | `webserver.listenPort` | int | `8443` | Port the HTTPS server listens on |
-| `webserver.apiKey` | string | — | **Required.** Key for the protected endpoints, sent as `X-API-Key` |
+| `webserver.tokenFile` | string | — | **Required.** File with the accepted bearer tokens, see [Tokens](#tokens); relative to the config file |
 | `webserver.keyFile` | string | — | TLS private key file |
 | `webserver.certFile` | string | — | TLS certificate file |
 | `webserver.blockedIPs` | list | empty | Addresses or networks (CIDR) that are refused |
@@ -431,21 +431,22 @@ and its end are logged once each, not for every frame.
 |--------|------------|---------|-------------------------------------------------------------|
 | GET    | `/`        | —       | Web page, see [Web UI](#web-ui)                             |
 | GET    | `/version` | —       | Application name and version                                |
-| GET    | `/health`  | API Key | Runtime metrics, MQTT state, controller values, DL-Bus state and errors |
-| GET    | `/data`    | API Key | Latest values of the controller; 503 without a current frame |
+| GET    | `/health`  | Token   | Runtime metrics, MQTT state, controller values, DL-Bus state and errors |
+| GET    | `/data`    | Token   | Latest values of the controller; 503 without a current frame |
 
-Authentication via the `X-API-Key` header. Errors are returned as `{"error": "..."}` with the HTTP
-status (401 without a valid key, 503 from `/data` while there is no current frame).
+Authentication with a bearer token from `tadl token add`: `Authorization: Bearer <token>`. HTTPS is
+TLS 1.3 only. Errors are returned as `{"error": "..."}` with the HTTP status (401 without a valid
+token, 503 from `/data` while there is no current frame).
 
 ```sh
 # Latest values
-curl -k -H "X-Api-Key: your-api-key" https://<your-pi>:8443/data
+curl -k -H "Authorization: Bearer $TOKEN" https://<your-pi>:8443/data
 
 # Application version (no auth required)
 curl -k https://<your-pi>:8443/version
 
 # Health check
-curl -k -H "X-Api-Key: your-api-key" https://<your-pi>:8443/health
+curl -k -H "Authorization: Bearer $TOKEN" https://<your-pi>:8443/health
 ```
 
 `/health` reports, besides the runtime metrics (`app`, `appVersion`, `goVersion`, `hostname`, `os`,
@@ -514,6 +515,8 @@ only.
 | `--about`   | `false`                     | Print application details and exit                |
 | `--help`    | `false`                     | Print the help text and exit                      |
 
+`tadl token add|remove|list` manages the bearer tokens, see [Tokens](#tokens).
+
 The config file path can also be set via the environment variable `CONFIG_FILE`; `--config` wins
 over it.
 
@@ -522,6 +525,44 @@ tadl --config /etc/tadl/config.yaml
 tadl --debug
 CONFIG_FILE=/etc/tadl/config.yaml tadl
 ```
+
+---
+
+## Tokens
+
+Every caller gets its own token: a browser, Node-RED, a script. tadl keeps only the SHA-256 hash of
+each, in the file named by `webserver.tokenFile`, one line per caller:
+
+```
+# /opt/tadl/etc/tokens
+browser  3f2a…c91e
+nodered  8b04…d7a2
+```
+
+The token itself exists only with the caller. Whoever reads the file cannot call tadl with it, so
+it needs no more protection than the config — but whoever can **write** it can add a token of their
+own: keep it `root:tadl 0640`, like `config.yaml`.
+
+| Command | Does |
+|---|---|
+| `sudo tadl token add <name>` | Writes the hash, then prints the token once, on stdout alone |
+| `sudo tadl token add <name> -dry-run` | Prints token and line, writes nothing |
+| `sudo tadl token remove <name>` | Deletes the line |
+| `sudo tadl token list` | Prints the names, never a hash |
+| `sudo systemctl reload tadl` | Applies a change |
+
+`-config` works as for the service. A new token file gets `0640` and the owner and group of
+`config.yaml`. `add` refuses a name that is taken and prints no token when it cannot write the
+file, so a token that is shown but stored nowhere cannot happen. A name is 1–64 letters, digits,
+`.`, `_` or `-`.
+
+**Rotating without a gap:** `tadl token add nodered-2`, move the caller to the new token, `tadl
+token remove nodered`, reload. A lost token is not recovered but replaced the same way.
+
+**In the log:** at start and after every reload tadl names the tokens it accepts
+(`Bearer tokens loaded … names=[browser nodered]`). The first request of each caller from each
+address is logged at info (`user=browser request.client=… firstAccess=true`), every rejected one
+as a warning with its address; the requests in between, the web page polls every 3 s, at debug.
 
 ---
 
@@ -549,7 +590,8 @@ sudo systemctl reload tadl          # requires ExecReload in the unit, see Quick
 sudo systemctl kill -s HUP tadl
 ```
 
-The new configuration is loaded and validated **before** anything is stopped. If it fails, the
+A reload also rereads the token file, so a token added or removed with `tadl token` applies
+without a restart. The new configuration is loaded and validated **before** anything is stopped. If it fails, the
 reload is refused with `Config reload rejected, keeping the running configuration` in the log and
 tadl keeps reading with its current settings — fix the file and reload again. A valid file restarts
 tadl's components with the new settings: the GPIO line is reopened and the MQTT client reconnects,
@@ -594,12 +636,15 @@ without a bit clock, the DL-Bus handler and the data logger.
 
 - The REST API and the web page are served over HTTPS only. Use your own certificate and `env: prod`
   on every device, see [TLS certificate](#tls-certificate).
-- Use a random `apiKey` (`openssl rand -hex 24`); everything except `/`, `/version` and the TLS
-  handshake needs it. tadl only reads the bus: the API cannot change anything on the controller.
+- Give every caller its own token (`tadl token add <name>`); everything except `/`, `/version` and
+  the TLS handshake needs one. tadl stores only their hashes and logs who calls. tadl only reads the
+  bus: the API cannot change anything on the controller.
+- Keep `/opt/tadl` owned by root, as in the [Quick start](#quick-start), and run the unit from
+  `contrib/` with its sandbox.
 - Limit who can reach the port with `allowedIPs`, e.g. to your home network, and do not expose it
   to the internet.
-- `mqtt.connection` may carry a broker password; keep the config file readable for the `tadl` user
-  only (`640`, as in the Quick start) or pass the password in an environment variable.
+- `mqtt.connection` may carry a broker password; keep the config file readable for root and the
+  group `tadl` only (`640`, as in the Quick start) or pass the password in an environment variable.
 
 Report vulnerabilities privately, see [SECURITY.md](SECURITY.md).
 
@@ -620,8 +665,13 @@ up as `uvr31`. `--debug` logs why each frame was rejected.
 The controller reports a value outside −50 … 300 °C, usually a sensor that is not connected or
 broken. The log names the sensor and its value, at most once a minute.
 
-**Service is `dead` immediately after start**
-A configuration error; the process exits with code 1 and prints the reason on stdout:
+**A request is refused with 401**
+The token is wrong or not in the token file, or the token file changed and tadl was not reloaded.
+`sudo tadl token list` shows the names; the log has a warning with the caller's address.
+
+**Service is `failed` immediately after start**
+A configuration error; the process exits with code 78, which the unit does not restart, and
+prints the reason on stdout:
 `Failed to load config file` (YAML could not be parsed — durations such as `publishInterval` must be
 Go duration strings like `60s`, not plain numbers) or `config validation failed`. Check with
 `journalctl -u tadl -n 20`.
@@ -636,11 +686,11 @@ sudo tar czf /tmp/tadl-backup.tar.gz /opt/tadl
 
 # Restore
 sudo tar xzf /tmp/tadl-backup.tar.gz -C /
-sudo chown -R tadl:tadl /opt/tadl
 sudo systemctl restart tadl
 ```
 
-tadl keeps no data of its own; the backup holds the binary, the configuration and the certificate.
+tar keeps owners and modes. tadl keeps no data of its own; the backup holds the binary, the
+configuration, the token file and the certificate.
 
 ---
 
@@ -648,7 +698,7 @@ tadl keeps no data of its own; the backup holds the binary, the configuration an
 
 Every release on the [releases page](https://github.com/womat/tadl/releases) carries archives for
 all Raspberry Pi architectures with the binary, the controller emulator `dlbussim`,
-`config/config.yaml`, `README.md` and `LICENSE`,
+`config/config.yaml`, `contrib/tadl.service`, `README.md` and `LICENSE`,
 plus a `checksums.txt` and a changelog. Versions follow [semantic versioning](https://semver.org/);
 a breaking change of the API, the telegram or the configuration raises the major version.
 
@@ -658,6 +708,24 @@ like `1.7.0-3-g0c13781-dirty` instead, which is how the two are told apart on a 
 Building from source needs Go and `make`: clone the repository and run `make help` for the targets;
 `make test` runs the tests (Linux only), `make lint` vet, golangci-lint and govulncheck, as CI does;
 [`CLAUDE.md`](CLAUDE.md) describes the architecture, the tests and the release process.
+
+### Upgrading to 3.0.0
+
+The API key is replaced by bearer tokens, HTTPS is TLS 1.3 only, and the unit lives in the
+repository:
+
+1. Make `/opt/tadl` root-owned as in the [Quick start](#quick-start).
+2. Put the new binary next to the old one as `bin/tadl.new`, and a copy of the config as
+   `etc/config.yaml.new` with `apiKey: …` replaced by `tokenFile: tokens`. The running 2.x is not
+   touched by either.
+3. Create the tokens with the new binary: `sudo /opt/tadl/bin/tadl.new token add browser -config
+   /opt/tadl/etc/config.yaml.new`. This only writes the token file; it opens no GPIO.
+4. Move `tadl.new` and `config.yaml.new` into place, install `contrib/tadl.service`, then
+   `sudo systemctl daemon-reload && sudo systemctl restart tadl`. A config that still has `apiKey`
+   is refused with a message that says so.
+5. Every caller sends `Authorization: Bearer <token>`; `X-API-Key` is no longer accepted. The web
+   page asks for the token once.
+6. A client limited to TLS 1.2 can no longer connect.
 
 ### Upgrading to 2.0.0
 

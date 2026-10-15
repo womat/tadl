@@ -91,6 +91,7 @@ archives:
       - README.md
       - LICENSE
       - config/config.yaml
+      - contrib/tadl.service
 
 checksum:
   name_template: checksums.txt
