@@ -31,17 +31,17 @@ The config file path can also be set via the environment variable `CONFIG_FILE`;
 over it.
 
 `--version` prints the semantic version the binary was built from. It is injected from the Git tag
-at build time, so an official release reports a plain `1.7.0`, while a local development build
-reports a descriptive fallback such as `1.7.0-5-g0c13781-dirty` or `dev`. `--about` additionally
+at build time, so an official release reports a plain `3.0.2`, while a local development build
+reports a descriptive fallback such as `3.0.2-5-g0c13781-dirty` or `dev`. `--about` additionally
 shows the build date and commit.
 
 **Examples:**
 
 ```bash
-tadl --config /etc/tadl/config.yaml
+tadl --config /opt/tadl/etc/config.yaml
 tadl --debug
 tadl --version
-CONFIG_FILE=/etc/tadl/config.yaml tadl
+CONFIG_FILE=/opt/tadl/etc/config.yaml tadl
 ```
 
 `SIGHUP` reloads the configuration and the token file; a file that does not load or validate is

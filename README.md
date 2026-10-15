@@ -90,7 +90,7 @@ GPIO through the Linux GPIO character device.
 | `linux_arm64`  | Pi 3 / 4 / 5 / 400 / Zero 2 W with a 64-bit OS |
 
 ```sh
-VERSION=1.7.0 ARCH=arm64        # see the release page for the latest version
+VERSION=3.0.2 ARCH=arm64        # see the release page for the latest version
 BASE=https://github.com/womat/tadl/releases/download/v$VERSION
 curl -LO $BASE/tadl_${VERSION}_linux_$ARCH.tar.gz -LO $BASE/checksums.txt
 sha256sum -c checksums.txt --ignore-missing
@@ -521,9 +521,9 @@ The config file path can also be set via the environment variable `CONFIG_FILE`;
 over it.
 
 ```sh
-tadl --config /etc/tadl/config.yaml
+tadl --config /opt/tadl/etc/config.yaml
 tadl --debug
-CONFIG_FILE=/etc/tadl/config.yaml tadl
+CONFIG_FILE=/opt/tadl/etc/config.yaml tadl
 ```
 
 ---
@@ -703,7 +703,7 @@ plus a `checksums.txt` and a changelog. Versions follow [semantic versioning](ht
 a breaking change of the API, the telegram or the configuration raises the major version.
 
 `tadl --version` reports the release a binary was built from. A local build reports something
-like `1.7.0-3-g0c13781-dirty` instead, which is how the two are told apart on a device.
+like `3.0.2-3-g0c13781-dirty` instead, which is how the two are told apart on a device.
 
 Building from source needs Go and `make`: clone the repository and run `make help` for the targets;
 `make test` runs the tests (Linux only), `make lint` vet, golangci-lint and govulncheck, as CI does;
@@ -726,18 +726,6 @@ repository:
 5. Every caller sends `Authorization: Bearer <token>`; `X-API-Key` is no longer accepted. The web
    page asks for the token once.
 6. A client limited to TLS 1.2 can no longer connect.
-
-### Upgrading to 2.0.0
-
-MQTT is switched by the presence of the `mqtt` block instead of an empty `connection`:
-
-| 1.x                                   | 2.0.0                                                  |
-|---------------------------------------|--------------------------------------------------------|
-| `mqtt.connection: ""` turns MQTT off  | delete or comment out the `mqtt` block                 |
-| no `mqtt` block: defaults, MQTT off   | unchanged: MQTT off                                    |
-| `mqtt` block with a broker            | unchanged                                              |
-
-An `mqtt` block without `connection` is refused with a message that says so.
 
 ---
 
