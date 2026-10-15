@@ -3,7 +3,6 @@ package datalogger
 import (
 	"errors"
 	"testing"
-	"time"
 )
 
 // The frames are written out by hand from the DL-Bus protocol description v1.7,
@@ -25,17 +24,17 @@ func TestDecodeUVR42(t *testing.T) {
 	}
 	want := map[string]float64{KeyTemperature1: 21.5, KeyTemperature2: 45.3, KeyTemperature3: -10, KeyTemperature4: 0}
 	for k, v := range want {
-		if got := r.Float64(k); got != v {
-			t.Errorf("%s = %v, want %v", k, got, v)
+		if got, ok := r.Temperature(k); !ok || got != v {
+			t.Errorf("%s = %v (%v), want %v", k, got, ok, v)
 		}
 	}
-	if !r.Bool(KeyOut1) || !r.Bool(KeyOut2) {
-		t.Errorf("outputs = %v/%v, want true/true", r.Bool(KeyOut1), r.Bool(KeyOut2))
+	if !r.Output(KeyOut1) || !r.Output(KeyOut2) || r.Out2 == nil {
+		t.Errorf("outputs = %v/%v, want true/true", r.Output(KeyOut1), r.Output(KeyOut2))
 	}
-	if ts, ok := r[KeyTimestamp].(time.Time); !ok {
+	if r.Timestamp.IsZero() {
 		t.Error("timestamp missing")
-	} else if ts.Nanosecond() != 0 {
-		t.Errorf("timestamp %v has a fraction of a second, want whole seconds", ts)
+	} else if r.Timestamp.Nanosecond() != 0 {
+		t.Errorf("timestamp %v has a fraction of a second, want whole seconds", r.Timestamp)
 	}
 }
 
@@ -51,11 +50,11 @@ func TestDecodeUVR31(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if r.Float64(KeyTemperature1) != 20 || r.Float64(KeyTemperature2) != 30 || r.Float64(KeyTemperature3) != -20 {
-		t.Errorf("temperatures = %v", r)
+	if *r.Temperature1 != 20 || *r.Temperature2 != 30 || *r.Temperature3 != -20 || r.Temperature4 != nil {
+		t.Errorf("temperatures = %+v", r)
 	}
-	if !r.Bool(KeyOut1) {
-		t.Error("out1 = false, want true")
+	if !r.Out1 || r.Out2 != nil {
+		t.Errorf("out1 = %v, out2 = %v, want true and none", r.Out1, r.Out2)
 	}
 }
 
@@ -69,11 +68,11 @@ func TestDecodeSensorOutOfRange(t *testing.T) {
 	if len(invalid) != 1 || invalid[0].key != KeyTemperature2 || invalid[0].value != 400 {
 		t.Errorf("invalid = %v, want temperature2 = 400", invalid)
 	}
-	if r.Exists(KeyTemperature2) {
-		t.Error("out-of-range temperature2 is in the record")
+	if r.Temperature2 != nil {
+		t.Error("out-of-range temperature2 is in the frame")
 	}
-	if r.Float64(KeyTemperature1) != 21.5 || r.Float64(KeyTemperature3) != -7.2 || !r.Bool(KeyOut1) {
-		t.Errorf("remaining values lost: %v", r)
+	if *r.Temperature1 != 21.5 || *r.Temperature3 != -7.2 || !r.Out1 {
+		t.Errorf("remaining values lost: %+v", r)
 	}
 }
 

@@ -12,8 +12,8 @@
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
-//	for record := range frames {
-//	    fmt.Println(record)
+//	for frame := range frames {
+//	    fmt.Println(frame.Timestamp, frame.Out1)
 //	}
 //	dl.Close()
 package datalogger
@@ -24,8 +24,6 @@ import (
 	"log/slog"
 	"sync/atomic"
 	"time"
-
-	"github.com/womat/golib/keyvalue"
 )
 
 // Sentinel errors returned by the decoder.
@@ -42,7 +40,8 @@ const (
 	UVR42 = 0x10
 )
 
-// Key constants for fields in a decoded keyvalue.Record.
+// Keys of the values of a Frame: its JSON keys, and the keys of datalogger.sensors in the
+// config.
 const (
 	KeyTimestamp    = "timestamp"
 	KeyDevice       = "device" // set by the consumer, not by the decoders
@@ -64,6 +63,66 @@ const (
 	tMin = MinTemperature
 )
 
+// Frame is one decoded controller frame.
+//
+// A temperature is nil when its sensor was out of range or the controller has no such sensor
+// (temperature4 on a UVR31); Out2 is nil on a UVR31. In JSON an absent value is left out, not
+// null, and the fields come in alphabetical order, as they did when a frame was a map: MQTT
+// consumers and /data see the same bytes. app/golden_test.go pins them.
+type Frame struct {
+	// Device names the data logger; set by the consumer, not by the decoders.
+	Device       string    `json:"device,omitempty"`
+	Out1         bool      `json:"out1"`
+	Out2         *bool     `json:"out2,omitempty"`
+	Temperature1 *float64  `json:"temperature1,omitempty"`
+	Temperature2 *float64  `json:"temperature2,omitempty"`
+	Temperature3 *float64  `json:"temperature3,omitempty"`
+	Temperature4 *float64  `json:"temperature4,omitempty"`
+	Timestamp    time.Time `json:"timestamp"` // whole seconds, local time
+}
+
+// IsZero reports whether f holds no frame.
+func (f Frame) IsZero() bool {
+	return f.Timestamp.IsZero()
+}
+
+// Temperature returns the temperature under key (KeyTemperature1 … KeyTemperature4) and
+// whether the frame has one.
+func (f Frame) Temperature(key string) (float64, bool) {
+	p := f.temperature(key)
+	if p == nil || *p == nil {
+		return 0, false
+	}
+	return **p, true
+}
+
+// Output reports whether the output under key (KeyOut1, KeyOut2) is on. An output the frame
+// does not have is off.
+func (f Frame) Output(key string) bool {
+	switch key {
+	case KeyOut1:
+		return f.Out1
+	case KeyOut2:
+		return f.Out2 != nil && *f.Out2
+	}
+	return false
+}
+
+// temperature returns the field of a temperature key, or nil for any other key.
+func (f *Frame) temperature(key string) **float64 {
+	switch key {
+	case KeyTemperature1:
+		return &f.Temperature1
+	case KeyTemperature2:
+		return &f.Temperature2
+	case KeyTemperature3:
+		return &f.Temperature3
+	case KeyTemperature4:
+		return &f.Temperature4
+	}
+	return nil
+}
+
 // rangeWarnInterval is how often a sensor that stays out of range is reported.
 const rangeWarnInterval = time.Minute
 
@@ -71,8 +130,8 @@ const rangeWarnInterval = time.Minute
 // Call Watch to start decoding and Close to release resources.
 type DL interface {
 	// Watch starts the decoding goroutine and returns a channel on which
-	// decoded keyvalue.Records are delivered. Call Close to stop decoding.
-	Watch(rx <-chan []byte, opts ...Option) (<-chan keyvalue.Record, error)
+	// decoded frames are delivered. Call Close to stop decoding.
+	Watch(rx <-chan []byte, opts ...Option) (<-chan Frame, error)
 
 	// Close blocks until the decoding goroutine has terminated.
 	// It is a no-op if Watch has never been called.
@@ -84,7 +143,7 @@ type DL interface {
 
 // Stats counts the frames a handler has seen since it was created.
 type Stats struct {
-	Decoded  uint64 // frames decoded into a record
+	Decoded  uint64 // frames decoded
 	Rejected uint64 // frames of the wrong size or device, or without any valid temperature
 }
 
@@ -99,7 +158,7 @@ func (c *counters) Stats() Stats {
 	return Stats{Decoded: c.decoded.Load(), Rejected: c.rejected.Load()}
 }
 
-// Keys returns the record keys of the temperatures and outputs a device sends,
+// Keys returns the keys of the temperatures and outputs a device sends,
 // in the order of its frame. It returns nil for an unknown device.
 func Keys(device int) (temperatures, outputs []string) {
 	switch device {
@@ -129,17 +188,17 @@ func WithLogger(l *slog.Logger) Option {
 	}
 }
 
-// outOfRange is a temperature that was left out of a record.
+// outOfRange is a temperature that was left out of a frame.
 type outOfRange struct {
 	key   string
 	value float64
 }
 
 // setTemperatures decodes the temperatures in b, int16 little-endian in 1/10 °C,
-// into r under keys, one per two bytes. A value outside tMin…tMax is left out
+// into f under keys, one per two bytes. A value outside tMin…tMax is left out
 // and returned instead. When no value is in range, the frame carries no
 // measurement at all and ErrInvalidTemperature is returned.
-func setTemperatures(r keyvalue.Record, b []byte, keys []string) ([]outOfRange, error) {
+func setTemperatures(f *Frame, b []byte, keys []string) ([]outOfRange, error) {
 	var invalid []outOfRange
 	for i, key := range keys {
 		t := float64(int16(binary.LittleEndian.Uint16(b[2*i:]))) / 10
@@ -147,7 +206,7 @@ func setTemperatures(r keyvalue.Record, b []byte, keys []string) ([]outOfRange, 
 			invalid = append(invalid, outOfRange{key: key, value: t})
 			continue
 		}
-		r.Set(key, t)
+		*f.temperature(key) = &t
 	}
 	if len(invalid) == len(keys) {
 		return invalid, ErrInvalidTemperature

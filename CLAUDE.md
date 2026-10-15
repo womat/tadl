@@ -87,7 +87,7 @@ Without a controller, run `dlbussim` on a second GPIO pin wired to tadl's input 
 
 Layering is strict: `cmd` → `app` → `app/service/*` → `pkg/*`. Lower layers never import upward.
 
-Data path: GPIO edges (`womat/golib/gpio/rpi`) → `app.decoderEvents` → golib `manchester/decoder` (bit clock recovered from the signal when `bitClock: 0`, IEEE convention) → `pkg/dlbus` (SYNC detection, polarity, bytes → frames) → `pkg/datalogger` (frame → `keyvalue.Record`) → `app/service/collector` (latest frame, MQTT publish, trend) → `/data`, `/health`, MQTT.
+Data path: GPIO edges (`womat/golib/gpio/rpi`) → `app.decoderEvents` → golib `manchester/decoder` (bit clock recovered from the signal when `bitClock: 0`, IEEE convention) → `pkg/dlbus` (SYNC detection, polarity, bytes → frames) → `pkg/datalogger` (frame → `datalogger.Frame`) → `app/service/collector` (latest frame, MQTT publish, trend) → `/data`, `/health`, MQTT.
 
 - **`cmd/main.go`** — flags, config load/validate, logger init, and the **restart loop**. `run()` subscribes to SIGHUP/SIGTERM/SIGINT **once** and hands that channel to every `App`, so a signal arriving between two lifecycles waits for the next `App` instead of killing the process — never `signal.Stop`/`Reset` it inside `app`. It passes a `checkReload` closure that loads and validates the config file, which the SIGHUP handler calls **before** tearing anything down, so a broken file is refused and the running `App` keeps going. A restart that passes the check but fails in `Run` (TLS, port, GPIO) falls back to `lastGood`, the config of the previous `App`; only a failing first start exits — with **exit code 78** (`exitConfig`) when the config does not load or validate, which `contrib/tadl.service` keeps from restarting (`RestartPreventExitStatus=78`). `tadl token …` is dispatched at the very top of `main`, before the flags: it is golib's `web.TokenCommand` and only reads the config (`app.TokenFile`) and writes the token file — no GPIO, no MQTT, no server, so it can run while the service runs. Every error path of `Run`, `Init` included, goes through `abort` (cancel, `wg.Wait`, `Cleanup`), so `Cleanup` must cope with parts that were never created. `README.md` in `cmd/` is `//go:embed`-ed as `--help` output, so keep it accurate.
 - **`app/app.go`** — wiring and lifecycle. Owns the `context.Context` that every goroutine is cancelled by. The signal goroutine is the **only** caller of `shutdownProcedure`: SIGHUP → `ModeRestart`, SIGTERM/SIGINT → `ModeStop`, and a web server that stops on its own reports on `app.serverErr` → `ModeRestart` (it must not call `shutdownProcedure` itself, because that waits on `app.wg`, which tracks the server goroutine). The GPIO callback never blocks: when `decoderEvents` is full it drops the edge, counts it in `droppedEdges` and reports it as `Missed` with the next edge. A reload builds a brand-new `App`, so in-memory state (trend samples, the 24 h error window) starts over.
@@ -100,11 +100,13 @@ Data path: GPIO edges (`womat/golib/gpio/rpi`) → `app.decoderEvents` → golib
 - **`pkg/dlbus`** — DL-Bus framing on the decoded bit stream: a SYNC is a run of at least 12 identical bits followed by the opposite start bit; its polarity decides whether the bits are inverted. Bytes are start bit, 8 data bits LSB first, stop bit. Knows nothing of controllers.
 - **`pkg/datalogger`** — per-controller frame decoding (`uvr42.go`, `uvr31.go`), the `Key*` constants, `Keys(type)`, and `frame.go` with `FrameUVR42`/`FrameUVR31`, which build frames for `dlbussim` and the tests. Temperatures outside −50 … 300 °C are left out of the record.
 
-**External dependency `github.com/womat/golib`** supplies `gpio`/`gpio/rpi`, `manchester/decoder` and `manchester/encoder`, `keyvalue`, `mqtt`, `web` (token auth and `TokenCommand`, access log, CORS, IP filter, `Encode`) and `xlog`. tadl is the **template for the sibling services** (relayhat, s0meter, smartmeter, modbusgateway; Wolfgang, 15.10.2026): token file + `token` subcommand, golib access log, `xlog`, exit code 78, TLS 1.3, `contrib/<svc>.service` with a sandbox, everything under `/opt/<svc>` owned by root. Keep it that way, and carry a change of that pattern over to them. It is not vendored — read it in `$(go env GOMODCACHE)/github.com/womat/golib@<version>` when behavior is unclear.
+**External dependency `github.com/womat/golib`** supplies `gpio`/`gpio/rpi`, `manchester/decoder` and `manchester/encoder`, `mqtt`, `web` (token auth and `TokenCommand`, access log, CORS, IP filter, `Encode`) and `xlog`. tadl is the **template for the sibling services** (relayhat, s0meter, smartmeter, modbusgateway; Wolfgang, 15.10.2026): token file + `token` subcommand, golib access log, `xlog`, exit code 78, TLS 1.3, `contrib/<svc>.service` with a sandbox, everything under `/opt/<svc>` owned by root. Keep it that way, and carry a change of that pattern over to them. It is not vendored — read it in `$(go env GOMODCACHE)/github.com/womat/golib@<version>` when behavior is unclear.
 
 ### Telegram contract
 
-The MQTT payload and the `/data` response are the same `keyvalue.Record`, marshalled as JSON: `device` (`datalogger.name`, default the type; set by `collector`, not the decoders), `temperature1`…`temperature4` (UVR31: …3), `out1`, `out2` (UVR31: `out1` only), `timestamp` (`time.Time`, local time, truncated to whole seconds, RFC 3339). It is published to `mqtt.topicPrefix` itself, QoS 0. Changing a key breaks consumers — document it in the README when you do.
+The MQTT payload and the `/data` response are the same `datalogger.Frame`, marshalled as JSON: `device` (`datalogger.name`, default the type; set by `collector`, not the decoders), `temperature1`…`temperature4` (UVR31: …3), `out1`, `out2` (UVR31: `out1` only), `timestamp` (`time.Time`, local time, truncated to whole seconds, RFC 3339). It is published to `mqtt.topicPrefix` itself, QoS 0. Changing a key breaks consumers — document it in the README when you do.
+
+The bytes are pinned by `app/golden_test.go` (files in `app/testdata/golden/`): MQTT payload, `/data` and the controller part of `/health`, for UVR42 and UVR31, with a sensor out of range and with a device name, through decoder, collector and handler. `Frame` keeps them identical to the map it replaced (until 3.0.0 a `keyvalue.Record`): fields in alphabetical order, `omitempty` on the pointers so an absent sensor or `out2` stays absent rather than `null`, and a sensor at 0 °C still present because its pointer is set. A deliberate change goes through `go test ./app -run TestGolden -update` and into the README.
 
 ## Conventions
 
@@ -113,20 +115,3 @@ The MQTT payload and the `/data` response are the same `keyvalue.Record`, marsha
 - Config field docs live in `README.md` (example and reference table) and `config/config.yaml` — update both when adding a config key. `cmd/README.md` is the short `--help` text and only points to them. `README.de.md` is a short German summary.
 - Commit subjects follow Conventional Commits, `type(scope): description` with an optional scope (`fix: default port 8443`, `feat(ui): …`), types `feat`, `fix`, `docu`, `chore`, `refactor`. The release changelog groups on them (`.goreleaser.yaml`), and anything unprefixed lands under "Other". Note it is `docu`, not `docs`.
 - Example host names, broker addresses and users stay neutral (`mqtt.example.com`, `raspberrypi`); this repository is public.
-
-## Planned
-
-- **A typed `Frame` struct instead of `keyvalue.Record`** (decided 11 October 2026). A
-  controller frame has a fixed shape, so a struct lets the compiler check what today is a string
-  key and a conversion at run time (`r.Float64("temperature1")`). It replaces the record in
-  `pkg/datalogger` (decoders), `app/service/collector` (`hasChanged`, `track`, `Current`) and
-  the `/data` response. Two constraints:
-  - **A sensor can be absent.** Temperatures outside −50 … 300 °C are left out, and
-    `hasChanged` treats a sensor appearing or disappearing as a change. The struct has to model
-    "no value" (e.g. `*float64` per sensor, or a value with a `valid` flag), not a plain slice.
-  - **The JSON stays byte-identical.** MQTT payload and `/data` keep the keys `device`,
-    `temperature1`…`temperature4` (UVR31: …3), `out1`, `out2` (UVR31: `out1`), `timestamp`,
-    and an absent sensor stays absent rather than becoming `null` — via `omitempty` on pointers
-    or a `MarshalJSON`. Consumers must not notice; pin it with a golden test before the change.
-
-  Afterwards tadl no longer imports `womat/golib/keyvalue`; it is the only user.

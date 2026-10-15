@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/womat/golib/keyvalue"
 	"github.com/womat/golib/mqtt"
 	"github.com/womat/tadl/pkg/datalogger"
 )
@@ -29,16 +28,18 @@ func (f *fakePublisher) Publish(msg mqtt.Message) error {
 
 var t0 = time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
 
-func uvr42Frame(at time.Time, t1 float64, out1 bool) keyvalue.Record {
-	r := keyvalue.NewRecord()
-	r.Set(datalogger.KeyTimestamp, at)
-	r.Set(datalogger.KeyTemperature1, t1)
-	r.Set(datalogger.KeyTemperature2, 45.3)
-	r.Set(datalogger.KeyTemperature3, -7.2)
-	r.Set(datalogger.KeyTemperature4, 0.0)
-	r.Set(datalogger.KeyOut1, out1)
-	r.Set(datalogger.KeyOut2, false)
-	return r
+func ptr[T any](v T) *T { return &v }
+
+func uvr42Frame(at time.Time, t1 float64, out1 bool) datalogger.Frame {
+	return datalogger.Frame{
+		Timestamp:    at,
+		Temperature1: ptr(t1),
+		Temperature2: ptr(45.3),
+		Temperature3: ptr(-7.2),
+		Temperature4: ptr(0.0),
+		Out1:         out1,
+		Out2:         ptr(false),
+	}
 }
 
 func newHandler(minDelta float64) *Handler {
@@ -54,7 +55,7 @@ func newHandler(minDelta float64) *Handler {
 }
 
 // feed runs one frame through checkAndUpdate and publishes it when due, like Run.
-func feed(t *testing.T, h *Handler, pub *fakePublisher, f keyvalue.Record) bool {
+func feed(t *testing.T, h *Handler, pub *fakePublisher, f datalogger.Frame) bool {
 	t.Helper()
 	changed, err := h.checkAndUpdate(f)
 	if err != nil {
@@ -115,7 +116,7 @@ func TestSensorAppearingOrDisappearingTriggers(t *testing.T) {
 	feed(t, h, pub, uvr42Frame(t0, 21.5, false))
 
 	f := uvr42Frame(t0, 21.5, false)
-	delete(f, datalogger.KeyTemperature2)
+	f.Temperature2 = nil
 	if !feed(t, h, pub, f) {
 		t.Error("sensor dropping out did not trigger a publish")
 	}
@@ -158,15 +159,15 @@ func TestPublishedPayload(t *testing.T) {
 	if got[datalogger.KeyTemperature1] != -7.2 || got[datalogger.KeyOut1] != true || got[datalogger.KeyDevice] != "solar" {
 		t.Errorf("payload = %v", got)
 	}
-	if cur, _ := h.Current(); cur.String(datalogger.KeyDevice) != "solar" {
-		t.Errorf("Current device = %q, want solar", cur.String(datalogger.KeyDevice))
+	if cur, _ := h.Current(); cur.Device != "solar" {
+		t.Errorf("Current device = %q, want solar", cur.Device)
 	}
 }
 
 func TestFrameWithoutTimestampRejected(t *testing.T) {
 	h := newHandler(0.5)
-	if _, err := h.checkAndUpdate(keyvalue.NewRecord()); err == nil {
-		t.Error("frame without timestamp accepted")
+	if _, err := h.checkAndUpdate(datalogger.Frame{}); !errors.Is(err, ErrMissingTimestamp) {
+		t.Errorf("frame without timestamp: err = %v, want ErrMissingTimestamp", err)
 	}
 }
 

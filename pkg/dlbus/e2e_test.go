@@ -4,7 +4,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/womat/golib/keyvalue"
 	"github.com/womat/golib/manchester/decoder"
 	"github.com/womat/golib/manchester/encoder"
 	"github.com/womat/tadl/pkg/datalogger"
@@ -64,7 +63,7 @@ func transmit(t *testing.T, l *line, frames ...[]byte) {
 
 // receive runs the edges through the chain tadl uses: a decoder without a bit
 // clock, the DL-Bus handler and the UVR42 data logger.
-func receive(t *testing.T, events []decoder.Event) ([]keyvalue.Record, dlbus.Stats) {
+func receive(t *testing.T, events []decoder.Event) ([]datalogger.Frame, dlbus.Stats) {
 	t.Helper()
 
 	c := make(chan decoder.Event, len(events))
@@ -91,7 +90,7 @@ func receive(t *testing.T, events []decoder.Event) ([]keyvalue.Record, dlbus.Sta
 		t.Fatalf("datalogger.Watch: %v", err)
 	}
 
-	var got []keyvalue.Record
+	var got []datalogger.Frame
 	for r := range records {
 		got = append(got, r)
 	}
@@ -124,19 +123,19 @@ func TestUVR42ReachesTheDataLogger(t *testing.T) {
 
 			// The last frame stays open until a further SYNC would end it.
 			if len(got) != 3 {
-				t.Errorf("%s, inverted=%v: %d records, want 3", clock.name, invert, len(got))
+				t.Errorf("%s, inverted=%v: %d frames, want 3", clock.name, invert, len(got))
 				continue
 			}
 			for _, r := range got {
 				for i, key := range []string{datalogger.KeyTemperature1, datalogger.KeyTemperature2,
 					datalogger.KeyTemperature3, datalogger.KeyTemperature4} {
-					if v := r.Float64(key); v != temperatures[i] {
+					if v, _ := r.Temperature(key); v != temperatures[i] {
 						t.Errorf("%s, inverted=%v: %s = %v, want %v", clock.name, invert, key, v, temperatures[i])
 					}
 				}
-				if !r.Bool(datalogger.KeyOut1) || r.Bool(datalogger.KeyOut2) {
+				if !r.Output(datalogger.KeyOut1) || r.Output(datalogger.KeyOut2) {
 					t.Errorf("%s, inverted=%v: outputs %v/%v, want true/false", clock.name, invert,
-						r.Bool(datalogger.KeyOut1), r.Bool(datalogger.KeyOut2))
+						r.Output(datalogger.KeyOut1), r.Output(datalogger.KeyOut2))
 				}
 			}
 			if stats.InvertedLine != invert {

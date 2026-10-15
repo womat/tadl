@@ -15,8 +15,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/womat/golib/keyvalue"
 )
 
 // UVR31Handler decodes UVR31 data frames read from the DL-Bus.
@@ -35,12 +33,11 @@ func NewUVR31() *UVR31Handler {
 }
 
 // Watch starts the decoding goroutine and returns a channel on which decoded
-// keyvalue.Records are delivered. Each record contains the measured temperatures
-// and output states keyed by the Key* constants.
+// frames are delivered, each with the measured temperatures and output states.
 //
 // Returns ErrWatcherAlreadyStarted if the handler is already running.
 // Call Close() to stop the goroutine and wait for it to finish.
-func (h *UVR31Handler) Watch(rx <-chan []byte, opts ...Option) (<-chan keyvalue.Record, error) {
+func (h *UVR31Handler) Watch(rx <-chan []byte, opts ...Option) (<-chan Frame, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -59,8 +56,8 @@ func (h *UVR31Handler) Watch(rx <-chan []byte, opts ...Option) (<-chan keyvalue.
 	warner := &rangeWarner{logger: logger}
 
 	// Buffered like the DL-Bus frames: the reader may be busy publishing, and
-	// an unbuffered channel would drop every record that arrives meanwhile.
-	c := make(chan keyvalue.Record, 10)
+	// an unbuffered channel would drop every frame that arrives meanwhile.
+	c := make(chan Frame, 10)
 	h.wg.Add(1)
 	go func() {
 		defer func() {
@@ -84,7 +81,7 @@ func (h *UVR31Handler) Watch(rx <-chan []byte, opts ...Option) (<-chan keyvalue.
 					return
 				}
 
-				kv, invalid, err := h.decode(b)
+				f, invalid, err := h.decode(b)
 				warner.warn(invalid, time.Now())
 				if err != nil {
 					h.rejected.Add(1)
@@ -97,7 +94,7 @@ func (h *UVR31Handler) Watch(rx <-chan []byte, opts ...Option) (<-chan keyvalue.
 				}
 				h.decoded.Add(1)
 				select {
-				case c <- kv:
+				case c <- f:
 				default:
 					if logger != nil {
 						logger.Warn("output channel full, dropping frame")
@@ -112,34 +109,34 @@ func (h *UVR31Handler) Watch(rx <-chan []byte, opts ...Option) (<-chan keyvalue.
 	return c, nil
 }
 
-// decode parses a raw 8-byte UVR31 frame into a keyvalue.Record.
-// Temperatures out of range are left out of the record and returned.
+// decode parses a raw 8-byte UVR31 frame.
+// Temperatures out of range are left out of the frame and returned.
 // Returns ErrInvalidSize, ErrUnsupportedDevice, or ErrInvalidTemperature
 // (no temperature in range) if the frame cannot be decoded.
-func (h *UVR31Handler) decode(b []byte) (keyvalue.Record, []outOfRange, error) {
+func (h *UVR31Handler) decode(b []byte) (Frame, []outOfRange, error) {
 	const (
 		out1      byte = 1 << 5 // bitmask for Out1 (bit 5)
 		frameSize      = 8
 	)
 
-	r := keyvalue.NewRecord()
+	var f Frame
 
 	if len(b) != frameSize {
-		return r, nil, ErrInvalidSize
+		return f, nil, ErrInvalidSize
 	}
 
 	if b[0] != UVR31 {
-		return r, nil, ErrUnsupportedDevice
+		return f, nil, ErrUnsupportedDevice
 	}
 
-	invalid, err := setTemperatures(r, b[1:7], []string{KeyTemperature1, KeyTemperature2, KeyTemperature3})
+	invalid, err := setTemperatures(&f, b[1:7], []string{KeyTemperature1, KeyTemperature2, KeyTemperature3})
 	if err != nil {
-		return r, invalid, err
+		return Frame{}, invalid, err
 	}
 
-	r.Set(KeyTimestamp, time.Now().Truncate(time.Second)) // whole seconds in the telegram
-	r.Set(KeyOut1, b[7]&out1 > 0)
-	return r, invalid, nil
+	f.Timestamp = time.Now().Truncate(time.Second) // whole seconds in the telegram
+	f.Out1 = b[7]&out1 > 0
+	return f, invalid, nil
 }
 
 // Close stops the decoding goroutine and waits for it to terminate.

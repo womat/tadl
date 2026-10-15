@@ -11,7 +11,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/womat/golib/keyvalue"
 	"github.com/womat/golib/mqtt"
 	"github.com/womat/tadl/pkg/datalogger"
 )
@@ -21,6 +20,8 @@ var (
 	// ErrNoData is returned by PublishFrame when no frame has been received yet
 	// or the last one is older than Config.StaleAfter.
 	ErrNoData = errors.New("no current data frame")
+	// ErrMissingTimestamp is returned for a frame without a timestamp; decoders always set one.
+	ErrMissingTimestamp = errors.New("missing timestamp")
 )
 
 // deltaEpsilon absorbs float rounding when a temperature difference is compared
@@ -38,11 +39,12 @@ type Handler struct {
 	config Config
 	now    func() time.Time
 
-	// DataFrame is the latest frame received, served by Current.
-	DataFrame keyvalue.Record
+	// DataFrame is the latest frame received, served by Current; zero before the first.
+	// Frames are replaced, never modified, so a copy may share its pointers.
+	DataFrame datalogger.Frame
 	// lastPublished is the last frame sent to the broker. A new frame is compared
 	// with it, not with its predecessor, so that a slow drift adds up to MinDeltaTemp.
-	lastPublished keyvalue.Record
+	lastPublished datalogger.Frame
 	// offline is set while publishes fail because the broker is not connected, so
 	// that an outage is logged once instead of for every frame.
 	offline atomic.Bool
@@ -59,7 +61,7 @@ type Config struct {
 	MinDeltaTemp float64
 	Topic        string
 	Retained     bool
-	// Device names the data logger in every frame under datalogger.KeyDevice,
+	// Device names the data logger in every frame (Frame.Device, "device" in JSON),
 	// so a consumer can tell the senders apart. Empty leaves the key out.
 	Device string
 	// StaleAfter is the age after which the last frame no longer counts as current.
@@ -78,7 +80,7 @@ func New(conf Config, t int) *Handler {
 // Run consumes decoded data logger frames from rx until ctx is cancelled or rx is
 // closed. It stores every frame and publishes it via pub when it differs
 // significantly from the last published frame. A nil pub only stores the frames.
-func (h *Handler) Run(ctx context.Context, rx <-chan keyvalue.Record, pub Publisher) {
+func (h *Handler) Run(ctx context.Context, rx <-chan datalogger.Frame, pub Publisher) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -107,7 +109,7 @@ func (h *Handler) Run(ctx context.Context, rx <-chan keyvalue.Record, pub Publis
 
 // checkAndUpdate stores the frame and reports whether it differs significantly
 // from the last published frame. Both happen under the same lock.
-func (h *Handler) checkAndUpdate(current keyvalue.Record) (bool, error) {
+func (h *Handler) checkAndUpdate(current datalogger.Frame) (bool, error) {
 	h.mux.Lock()
 	defer h.mux.Unlock()
 
@@ -117,7 +119,7 @@ func (h *Handler) checkAndUpdate(current keyvalue.Record) (bool, error) {
 	}
 
 	if h.config.Device != "" {
-		current.Set(datalogger.KeyDevice, h.config.Device)
+		current.Device = h.config.Device
 	}
 	// Always store the latest frame regardless of whether it triggered a publish.
 	h.DataFrame = current
@@ -125,36 +127,32 @@ func (h *Handler) checkAndUpdate(current keyvalue.Record) (bool, error) {
 	return changed, nil
 }
 
-// Current returns a copy of the latest data frame and whether it is current:
-// a frame has been received and it is not older than Config.StaleAfter.
-func (h *Handler) Current() (keyvalue.Record, bool) {
+// Current returns the latest data frame and whether it is current: a frame has
+// been received and it is not older than Config.StaleAfter.
+func (h *Handler) Current() (datalogger.Frame, bool) {
 	h.mux.Lock()
 	defer h.mux.Unlock()
-	return h.DataFrame.Copy(), h.isCurrent(h.DataFrame)
+	return h.DataFrame, h.isCurrent(h.DataFrame)
 }
 
 // isCurrent reports whether frame holds data that is not older than StaleAfter.
 // Must be called with h.mux held.
-func (h *Handler) isCurrent(frame keyvalue.Record) bool {
-	if len(frame) == 0 {
+func (h *Handler) isCurrent(frame datalogger.Frame) bool {
+	if frame.IsZero() {
 		return false
 	}
 	if h.config.StaleAfter <= 0 {
 		return true
 	}
-	t, err := toTime(frame, datalogger.KeyTimestamp)
-	if err != nil {
-		return false
-	}
-	return h.now().Sub(t) <= h.config.StaleAfter
+	return h.now().Sub(frame.Timestamp) <= h.config.StaleAfter
 }
 
 // hasChanged reports whether current differs from the last published frame
 // enough to warrant an MQTT publish.
 // Must be called with h.mux held.
-func (h *Handler) hasChanged(current keyvalue.Record) (bool, error) {
-	if _, err := toTime(current, datalogger.KeyTimestamp); err != nil {
-		return false, err
+func (h *Handler) hasChanged(current datalogger.Frame) (bool, error) {
+	if current.IsZero() {
+		return false, ErrMissingTimestamp
 	}
 
 	temperatures, outputs := datalogger.Keys(h.typ)
@@ -162,13 +160,13 @@ func (h *Handler) hasChanged(current keyvalue.Record) (bool, error) {
 		return false, ErrUnsupportedFrameType
 	}
 
-	if len(h.lastPublished) == 0 {
+	if h.lastPublished.IsZero() {
 		// Nothing published yet — always publish the first frame.
 		return true, nil
 	}
 
 	for _, key := range outputs {
-		if current.Bool(key) != h.lastPublished.Bool(key) {
+		if current.Output(key) != h.lastPublished.Output(key) {
 			return true, nil
 		}
 	}
@@ -183,29 +181,16 @@ func (h *Handler) hasChanged(current keyvalue.Record) (bool, error) {
 // tempChanged reports whether the temperature key changed by at least minDelta
 // between previous and current. A sensor that appears or disappears (out of
 // range) counts as changed. With minDelta 0 a change in value never counts.
-func tempChanged(current, previous keyvalue.Record, key string, minDelta float64) bool {
-	inCurrent, inPrevious := current.Exists(key), previous.Exists(key)
+func tempChanged(current, previous datalogger.Frame, key string, minDelta float64) bool {
+	now, inCurrent := current.Temperature(key)
+	before, inPrevious := previous.Temperature(key)
 	if inCurrent != inPrevious {
 		return true
 	}
 	if !inCurrent || minDelta <= 0 {
 		return false
 	}
-	return math.Abs(current.Float64(key)-previous.Float64(key)) >= minDelta-deltaEpsilon
-}
-
-// toTime extracts a time.Time value for key from record.
-func toTime(record keyvalue.Record, key string) (time.Time, error) {
-	v, ok := record.Value(key)
-	if !ok {
-		return time.Time{}, errors.New("missing timestamp")
-	}
-
-	t, ok := v.(time.Time)
-	if !ok {
-		return time.Time{}, errors.New("invalid timestamp type")
-	}
-	return t, nil
+	return math.Abs(now-before) >= minDelta-deltaEpsilon
 }
 
 // publish publishes the current data frame and logs a failure at a level that

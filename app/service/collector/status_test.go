@@ -4,7 +4,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/womat/golib/keyvalue"
 	"github.com/womat/tadl/pkg/datalogger"
 )
 
@@ -26,7 +25,7 @@ func TestStatusWithoutFrame(t *testing.T) {
 func TestStatusValuesNamesAndRanges(t *testing.T) {
 	h := newHandler(0.5)
 	f := uvr42Frame(t0, 64.3, true)
-	delete(f, datalogger.KeyTemperature3) // sensor out of range
+	f.Temperature3 = nil // sensor out of range
 	h.checkAndUpdate(f)
 	h.now = func() time.Time { return t0.Add(2 * time.Second) }
 
@@ -53,12 +52,11 @@ func TestStatusValuesNamesAndRanges(t *testing.T) {
 }
 
 // frameAt returns a UVR42 frame at t with temperature1 set to v; nil leaves it out.
-func frameAt(at time.Time, v *float64) keyvalue.Record {
+func frameAt(at time.Time, v *float64) datalogger.Frame {
 	f := uvr42Frame(at, 0, false)
-	if v == nil {
-		delete(f, datalogger.KeyTemperature1)
-	} else {
-		f.Set(datalogger.KeyTemperature1, *v)
+	f.Temperature1 = nil
+	if v != nil {
+		f.Temperature1 = ptr(*v)
 	}
 	return f
 }

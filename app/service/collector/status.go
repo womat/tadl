@@ -3,7 +3,6 @@ package collector
 import (
 	"time"
 
-	"github.com/womat/golib/keyvalue"
 	"github.com/womat/tadl/pkg/datalogger"
 )
 
@@ -54,11 +53,11 @@ type sample struct {
 
 // track records the frame's temperatures for the trend.
 // Must be called with h.mux held.
-func (h *Handler) track(frame keyvalue.Record) {
-	at, err := toTime(frame, datalogger.KeyTimestamp)
-	if err != nil {
+func (h *Handler) track(frame datalogger.Frame) {
+	if frame.IsZero() {
 		return
 	}
+	at := frame.Timestamp
 	temperatures, _ := datalogger.Keys(h.typ)
 
 	// One sample per minute; keep one minute more than the window, so a sample
@@ -66,8 +65,8 @@ func (h *Handler) track(frame keyvalue.Record) {
 	if n := len(h.samples); n == 0 || at.Sub(h.samples[n-1].at) >= time.Minute {
 		s := sample{at: at, temps: make(map[string]float64, len(temperatures))}
 		for _, key := range temperatures {
-			if frame.Exists(key) {
-				s.temps[key] = frame.Float64(key)
+			if v, ok := frame.Temperature(key); ok {
+				s.temps[key] = v
 			}
 		}
 		h.samples = append(h.samples, s)
@@ -115,25 +114,24 @@ func (h *Handler) Status(views map[string]SensorView) DataloggerStatus {
 		Temperatures: []TemperatureStatus{},
 		Outputs:      []OutputStatus{},
 	}
-	at, err := toTime(h.DataFrame, datalogger.KeyTimestamp)
-	if err != nil {
+	if h.DataFrame.IsZero() {
 		return st
 	}
+	at := h.DataFrame.Timestamp
 	st.LastFrame, st.LastFrameAgeSeconds = timeAndAge(at, now)
 
 	temperatures, outputs := datalogger.Keys(h.typ)
 	for _, key := range temperatures {
 		v := views[key]
 		t := TemperatureStatus{Key: key, Label: v.Label, Min: v.Min, Max: v.Max}
-		if h.DataFrame.Exists(key) {
-			value := h.DataFrame.Float64(key)
+		if value, ok := h.DataFrame.Temperature(key); ok {
 			t.Value = &value
 			t.Trend15m = h.trend(key, value, at)
 		}
 		st.Temperatures = append(st.Temperatures, t)
 	}
 	for _, key := range outputs {
-		st.Outputs = append(st.Outputs, OutputStatus{Key: key, Label: views[key].Label, On: h.DataFrame.Bool(key)})
+		st.Outputs = append(st.Outputs, OutputStatus{Key: key, Label: views[key].Label, On: h.DataFrame.Output(key)})
 	}
 	return st
 }
