@@ -160,17 +160,17 @@ BUILD_DEV_TARGETS := $(addsuffix _dev,$(BUILD_TARGETS))
 # Static pattern rules (explicit target lists) instead of plain build_% rules: they work
 # with .PHONY and resolve build_arm6_dev unambiguously, also in GNU Make 3.81 on macOS.
 $(BUILD_TARGETS): build_%: ensure_dev_certs
-	$(GOENV_$*) go build -ldflags "$(LDFLAGS)" -o ./bin/$*/${BINARY_NAME} ./cmd/main.go
+	$(GOENV_$*) go build -trimpath -ldflags "$(LDFLAGS)" -o ./bin/$*/${BINARY_NAME} ./cmd/main.go
 
 $(BUILD_DEV_TARGETS): build_%_dev: ensure_dev_certs
-	$(GOENV_$*) go build -tags swagger -ldflags "$(LDFLAGS)" -o ./bin/$*/${BINARY_NAME} ./cmd/main.go
+	$(GOENV_$*) go build -trimpath -tags swagger -ldflags "$(LDFLAGS)" -o ./bin/$*/${BINARY_NAME} ./cmd/main.go
 
 # The DL-Bus controller emulator, for testing without a controller (see README).
 SIM_TARGETS := $(addprefix build_sim_,$(BUILD_ARCHS))
 .PHONY: $(SIM_TARGETS)
 ## build_sim_<arch>: ## the DL-Bus emulator dlbussim, e.g. build_sim_arm64
 $(SIM_TARGETS): build_sim_%:
-	$(GOENV_$*) go build -o ./bin/$*/${SIM_NAME} ./cmd/dlbussim
+	$(GOENV_$*) go build -trimpath -o ./bin/$*/${SIM_NAME} ./cmd/dlbussim
 
 
 deploy: build_$(PI_ARCH) ## build for $(PI_ARCH) and copy to $(PI_USER)@$(PI_HOST) (override: make deploy PI_ARCH=arm6 PI_HOST=my-pi)
