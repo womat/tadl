@@ -5,7 +5,7 @@ go 1.27
 require (
 	github.com/swaggo/http-swagger v1.3.4
 	github.com/swaggo/swag v1.16.6
-	github.com/womat/golib v1.4.2-0.20261015171503-ad511ee0a6f3
+	github.com/womat/golib v1.5.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 

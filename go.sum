@@ -53,8 +53,8 @@ github.com/warthog618/go-gpiocdev v0.9.2 h1:+8VVUMLxTwuYOcBk8yaFfVQyfigUXy0mIaSx
 github.com/warthog618/go-gpiocdev v0.9.2/go.mod h1:Hj1ECwLE3Hy8trth5BoT/WanO02zdoSmg3a5CTNasHA=
 github.com/warthog618/go-gpiosim v0.1.2 h1:8RsinSKZbsG6REhfVDpBr7gdzQeJ7RoCUxLR9oUlk0M=
 github.com/warthog618/go-gpiosim v0.1.2/go.mod h1:YXsnB+I9jdCMY4YAlMSRrlts25ltjmuIsrnoUrBLdqU=
-github.com/womat/golib v1.4.2-0.20261015171503-ad511ee0a6f3 h1:mWuGfazaiUSj0DY+8Tp3p3C80x120gMl8dlCCBrQwR0=
-github.com/womat/golib v1.4.2-0.20261015171503-ad511ee0a6f3/go.mod h1:BA0Rce5areX8cmzXnzPiiDMofBGDz3t8uK0CPwSQzJY=
+github.com/womat/golib v1.5.0 h1:2d4IGONwQGhPmd6hbScAWw9sajw0uFgt+UPGhaAQQQc=
+github.com/womat/golib v1.5.0/go.mod h1:BA0Rce5areX8cmzXnzPiiDMofBGDz3t8uK0CPwSQzJY=
 github.com/yuin/goldmark v1.4.13/go.mod h1:6yULJ656Px+3vBD8DxQVa3kxgyrAnzto9xy5taEt/CY=
 go.yaml.in/yaml/v3 v3.0.5 h1:N6y/pJk8buWs9NY5ERU2HSMfm+IuD/OtfdAnq6kESPw=
 go.yaml.in/yaml/v3 v3.0.5/go.mod h1:HVTZu1O7/Vkt2N+BFy8Zza+lnLsABggaTM2ZpNIGuKg=
