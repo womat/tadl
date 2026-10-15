@@ -144,8 +144,14 @@ func TestLoadConfigExpandsBracedVariablesOnly(t *testing.T) {
 	}
 }
 
+// The example names /opt/tadl/etc/tokens, which does not exist here, so only the config file
+// itself is read.
 func TestLoadConfigExample(t *testing.T) {
-	if _, err := LoadConfig("../config/config.yaml"); err != nil {
-		t.Errorf("example config: %v", err)
+	c, err := readConfig("../config/config.yaml")
+	if err != nil {
+		t.Fatalf("example config: %v", err)
+	}
+	if c.Webserver.TokenFile == "" || c.Webserver.ApiKey != "" {
+		t.Errorf("the example should use tokenFile, not apiKey: %+v", c.Webserver)
 	}
 }

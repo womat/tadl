@@ -189,6 +189,7 @@ paths:
                 type: string
             type: object
       security:
+      - BearerAuth: []
       - ApiKeyAuth: []
       summary: Get current data logger values
       tags:
@@ -212,6 +213,7 @@ paths:
           schema:
             type: string
       security:
+      - BearerAuth: []
       - ApiKeyAuth: []
       summary: Get health data
       tags:
@@ -237,7 +239,14 @@ paths:
       - info
 securityDefinitions:
   ApiKeyAuth:
+    description: 'Deprecated: webserver.apiKey in this header. Still accepted, but
+      logged as a warning; use BearerAuth.'
     in: header
     name: X-API-Key
+    type: apiKey
+  BearerAuth:
+    description: A token from "tadl token add <name>", sent as "Bearer <token>".
+    in: header
+    name: Authorization
     type: apiKey
 swagger: "2.0"

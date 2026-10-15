@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/womat/golib/web"
 	"github.com/womat/tadl/pkg/datalogger"
 	"gopkg.in/yaml.v3"
 )
@@ -34,13 +36,15 @@ type Config struct {
 
 // WebserverConfig holds HTTPS server settings.
 type WebserverConfig struct {
-	ListenHost string   `yaml:"listenHost"` // Host address for web server
-	ListenPort int      `yaml:"listenPort"` // Port for web server
-	ApiKey     string   `yaml:"apiKey"`     // API key for requests
-	KeyFile    string   `yaml:"keyFile"`    // SSL private key file
-	CertFile   string   `yaml:"certFile"`   // SSL certificate file
-	BlockedIPs []string `yaml:"blockedIPs"` // Forbidden IP addresses or networks
-	AllowedIPs []string `yaml:"allowedIPs"` // Allowed IP addresses or networks
+	ListenHost string      `yaml:"listenHost"` // Host address for web server
+	ListenPort int         `yaml:"listenPort"` // Port for web server
+	ApiKey     string      `yaml:"apiKey"`     // Deprecated: plain API key, superseded by TokenFile
+	TokenFile  string      `yaml:"tokenFile"`  // File with the accepted bearer tokens as SHA-256 hashes
+	Tokens     []web.Token `yaml:"-"`          // Read from TokenFile by LoadConfig
+	KeyFile    string      `yaml:"keyFile"`    // SSL private key file
+	CertFile   string      `yaml:"certFile"`   // SSL certificate file
+	BlockedIPs []string    `yaml:"blockedIPs"` // Forbidden IP addresses or networks
+	AllowedIPs []string    `yaml:"allowedIPs"` // Allowed IP addresses or networks
 }
 
 // MQTTConfig holds MQTT client settings. MQTT is on when the mqtt block is present.
@@ -189,11 +193,42 @@ func expandEnvBraces(s string) string {
 	})
 }
 
-// LoadConfig loads configuration from a YAML file and expands ${VAR} environment references.
+// LoadConfig loads configuration from a YAML file and expands ${VAR} environment references,
+// then reads the bearer tokens from webserver.tokenFile.
 //
 // Unknown keys are an error rather than ignored, so a misspelled or renamed key cannot silently
-// leave its setting at the default.
+// leave its setting at the default. A token file that is missing or broken is an error too: the
+// service would otherwise start and reject every request with 401. Since a SIGHUP reload goes
+// through here, a token added with "tadl token add" applies on reload.
 func LoadConfig(fileName string) (*Config, error) {
+	cfg, err := readConfig(fileName)
+	if err != nil {
+		return cfg, err
+	}
+
+	if cfg.Webserver.TokenFile != "" {
+		if cfg.Webserver.Tokens, err = web.ReadTokenFile(cfg.Webserver.TokenFile); err != nil {
+			return cfg, fmt.Errorf("token file: %w", err)
+		}
+	}
+
+	return cfg, nil
+}
+
+// TokenFile returns webserver.tokenFile of the config file, without reading the token file
+// itself - "tadl token add" has to work before that file exists.
+func TokenFile(fileName string) (string, error) {
+	cfg, err := readConfig(fileName)
+	if err != nil {
+		return "", err
+	}
+	return cfg.Webserver.TokenFile, nil
+}
+
+// readConfig loads the config file alone. A relative tokenFile is resolved against the
+// directory of the config file, so the service and "tadl token" find the same file wherever
+// they are started from.
+func readConfig(fileName string) (*Config, error) {
 	cfg := NewConfig()
 
 	fileInfo, err := os.Stat(fileName)
@@ -215,6 +250,10 @@ func LoadConfig(fileName string) (*Config, error) {
 		return cfg, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
+	if f := cfg.Webserver.TokenFile; f != "" && !filepath.IsAbs(f) {
+		cfg.Webserver.TokenFile = filepath.Join(filepath.Dir(fileName), f)
+	}
+
 	return cfg, nil
 }
 
@@ -230,8 +269,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid environment: %s, must be %s or %s", c.Env, ProdEnv, DevEnv)
 	}
 
-	if c.Webserver.ApiKey == "" {
-		return errors.New("ApiKey is not configured")
+	if c.Webserver.ApiKey == "" && c.Webserver.TokenFile == "" {
+		return errors.New("neither webserver.tokenFile nor webserver.apiKey is configured")
 	}
 
 	validLogLevels := []string{"debug", "info", "warning", "warn", "error"}

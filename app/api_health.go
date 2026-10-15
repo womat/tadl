@@ -19,6 +19,7 @@ import (
 //	@Description	(signal, bit rate, line polarity, error counters since start and for the last 24 h). The web UI at / reads it.
 //	@Tags			info
 //	@Produce		json
+//	@Security		BearerAuth
 //	@Security		ApiKeyAuth
 //	@Success		200	{object}	health.Model	"Health data successfully retrieved"
 //	@Failure		401	{string}	string			"Unauthorized"

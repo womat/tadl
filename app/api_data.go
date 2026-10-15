@@ -16,6 +16,7 @@ import (
 //	@Description	A temperature outside the sensor range is left out.
 //	@Tags			data
 //	@Produce		json
+//	@Security		BearerAuth
 //	@Security		ApiKeyAuth
 //	@Success		200	{object}	object{timestamp=string,temperature1=number,temperature2=number,temperature3=number,temperature4=number,out1=boolean,out2=boolean}	"Current data logger values"
 //	@Failure		401	{string}	string																																"Unauthorized"

@@ -19,6 +19,9 @@ const docTemplate = `{
             "get": {
                 "security": [
                     {
+                        "BearerAuth": []
+                    },
+                    {
                         "ApiKeyAuth": []
                     }
                 ],
@@ -83,6 +86,9 @@ const docTemplate = `{
         "/health": {
             "get": {
                 "security": [
+                    {
+                        "BearerAuth": []
+                    },
                     {
                         "ApiKeyAuth": []
                     }
@@ -354,8 +360,15 @@ const docTemplate = `{
     },
     "securityDefinitions": {
         "ApiKeyAuth": {
+            "description": "Deprecated: webserver.apiKey in this header. Still accepted, but logged as a warning; use BearerAuth.",
             "type": "apiKey",
             "name": "X-API-Key",
+            "in": "header"
+        },
+        "BearerAuth": {
+            "description": "A token from \"tadl token add \u003cname\u003e\", sent as \"Bearer \u003ctoken\u003e\".",
+            "type": "apiKey",
+            "name": "Authorization",
             "in": "header"
         }
     }
