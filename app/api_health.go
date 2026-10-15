@@ -20,7 +20,6 @@ import (
 //	@Tags			info
 //	@Produce		json
 //	@Security		BearerAuth
-//	@Security		ApiKeyAuth
 //	@Success		200	{object}	health.Model	"Health data successfully retrieved"
 //	@Failure		401	{string}	string			"Unauthorized"
 //	@Router			/health [get]

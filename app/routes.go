@@ -2,7 +2,7 @@
 // It supports authentication, Swagger documentation (dev only), and monitoring endpoints.
 // Routes:
 // - Public routes without authentication: the web page at /, version
-// - Protected routes requiring a bearer token (or, deprecated, the API key)
+// - Protected routes requiring a bearer token from the token file
 // - Swagger documentation (only in development) at /swagger/
 // - Health, Version, and data endpoints
 //
@@ -50,12 +50,11 @@ func (app *App) SetupRoutes() {
 }
 
 // webConfig is the authentication of the protected routes: the bearer tokens from the token
-// file, and the deprecated API key while it is still set. With JwtSecret and JwtID left empty,
-// golib's JWT path stays disabled.
+// file, nothing else. With ApiKey, JwtSecret and JwtID left empty, golib's other paths stay
+// disabled.
 func (app *App) webConfig() web.Config {
 	return web.Config{
 		Tokens:  app.config.Webserver.Tokens,
-		ApiKey:  app.config.Webserver.ApiKey,
 		AppName: MODULE,
 	}
 }

@@ -38,11 +38,6 @@ var (
 // @in							header
 // @name						Authorization
 // @description				A token from "tadl token add <name>", sent as "Bearer <token>".
-//
-// @securityDefinitions.apikey	ApiKeyAuth
-// @in							header
-// @name						X-API-Key
-// @description				Deprecated: webserver.apiKey in this header. Still accepted, but logged as a warning; use BearerAuth.
 func main() {
 	defaultConfig := filepath.Join("/opt", app.MODULE, "etc", "config.yaml")
 	if envCfg := os.Getenv("CONFIG_FILE"); envCfg != "" {

@@ -8,7 +8,7 @@ import (
 
 func validConfig() *Config {
 	c := NewConfig()
-	c.Webserver.ApiKey = "a-long-enough-test-key"
+	c.Webserver.TokenFile = "/opt/tadl/etc/tokens"
 	c.DlBus.GPIO = 20
 	c.MQTT = &MQTTConfig{Connection: "tcp://broker:1883", TopicPrefix: "test/uvr42"}
 	return c
@@ -132,15 +132,15 @@ func TestLoadConfigRejectsUnknownKeys(t *testing.T) {
 	}
 }
 
-// Only ${VAR} is expanded, so an API key containing "$" stays as it is.
+// Only ${VAR} is expanded, so a value containing "$" otherwise stays as it is.
 func TestLoadConfigExpandsBracedVariablesOnly(t *testing.T) {
-	t.Setenv("TADL_TEST_KEY", "from-env")
-	c, err := loadYAML(t, "webserver:\n  apiKey: ${TADL_TEST_KEY}\nmqtt:\n  topicPrefix: a$b\n")
+	t.Setenv("TADL_TEST_BROKER", "tcp://from-env:1883")
+	c, err := loadYAML(t, "mqtt:\n  connection: ${TADL_TEST_BROKER}\n  topicPrefix: a$b\n")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Webserver.ApiKey != "from-env" || c.MQTT.TopicPrefix != "a$b" {
-		t.Errorf("apiKey = %q, topicPrefix = %q", c.Webserver.ApiKey, c.MQTT.TopicPrefix)
+	if c.MQTT.Connection != "tcp://from-env:1883" || c.MQTT.TopicPrefix != "a$b" {
+		t.Errorf("connection = %q, topicPrefix = %q", c.MQTT.Connection, c.MQTT.TopicPrefix)
 	}
 }
 
@@ -151,7 +151,7 @@ func TestLoadConfigExample(t *testing.T) {
 	if err != nil {
 		t.Fatalf("example config: %v", err)
 	}
-	if c.Webserver.TokenFile == "" || c.Webserver.ApiKey != "" {
-		t.Errorf("the example should use tokenFile, not apiKey: %+v", c.Webserver)
+	if err := c.Validate(); err != nil {
+		t.Errorf("example config: %v", err)
 	}
 }

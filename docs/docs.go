@@ -20,9 +20,6 @@ const docTemplate = `{
                 "security": [
                     {
                         "BearerAuth": []
-                    },
-                    {
-                        "ApiKeyAuth": []
                     }
                 ],
                 "description": "Returns the latest available values read from the configured data logger.\nThe response structure depends on the configured device type:\nUVR42 returns temperature1–4, out1, out2 and a timestamp.\nUVR31 returns temperature1–3, out1 and a timestamp.\nA temperature outside the sensor range is left out.",
@@ -88,9 +85,6 @@ const docTemplate = `{
                 "security": [
                     {
                         "BearerAuth": []
-                    },
-                    {
-                        "ApiKeyAuth": []
                     }
                 ],
                 "description": "Retrieves memory usage, goroutine count, version, hostname, Go runtime version and OS, the MQTT connection state\nwith broker (host:port, never credentials) and topic,\nthe latest controller values with their names, bar ranges and 15 min trend, and the state of the DL-Bus input\n(signal, bit rate, line polarity, error counters since start and for the last 24 h). The web UI at / reads it.",
@@ -359,12 +353,6 @@ const docTemplate = `{
         }
     },
     "securityDefinitions": {
-        "ApiKeyAuth": {
-            "description": "Deprecated: webserver.apiKey in this header. Still accepted, but logged as a warning; use BearerAuth.",
-            "type": "apiKey",
-            "name": "X-API-Key",
-            "in": "header"
-        },
         "BearerAuth": {
             "description": "A token from \"tadl token add \u003cname\u003e\", sent as \"Bearer \u003ctoken\u003e\".",
             "type": "apiKey",

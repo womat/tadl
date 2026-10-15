@@ -80,21 +80,25 @@ func TestTokenFileNeedsNoTokenFile(t *testing.T) {
 	}
 }
 
-func TestValidateNeedsTokenFileOrApiKey(t *testing.T) {
+func TestValidateNeedsTokenFile(t *testing.T) {
 	c := validConfig()
-	c.Webserver.ApiKey = ""
-	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "tokenFile") {
-		t.Errorf("Validate without either: %v", err)
-	}
-
-	c.Webserver.TokenFile = "/opt/tadl/etc/tokens"
-	if err := c.Validate(); err != nil {
-		t.Errorf("Validate with tokenFile only: %v", err)
+	c.Webserver.TokenFile = ""
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "tadl token add") {
+		t.Errorf("Validate without tokenFile: %v", err)
 	}
 }
 
-// The protected routes take a token from the token file as a bearer token, and the deprecated
-// API key while it is still configured.
+// An old config with apiKey fails with a message that names the replacement, not just
+// "unknown key".
+func TestValidateRejectsApiKey(t *testing.T) {
+	c := validConfig()
+	c.Webserver.ApiKey = "old"
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "tokenFile") {
+		t.Errorf("Validate with apiKey: %v", err)
+	}
+}
+
+// The protected routes take a token from the token file as a bearer token, nothing else.
 func TestWebConfigTakesBearerTokens(t *testing.T) {
 	c := validConfig()
 	c.Webserver.Tokens = []web.Token{{Name: "nodered", Hash: web.HashToken("the-token")}}
@@ -106,8 +110,7 @@ func TestWebConfigTakesBearerTokens(t *testing.T) {
 		denied bool
 	}{
 		{"token", map[string]string{"Authorization": "Bearer the-token"}, false},
-		{"api key as bearer", map[string]string{"Authorization": "Bearer " + c.Webserver.ApiKey}, false},
-		{"api key in X-API-Key", map[string]string{"X-API-Key": c.Webserver.ApiKey}, false},
+		{"token in X-API-Key", map[string]string{"X-API-Key": "the-token"}, true},
 		{"wrong token", map[string]string{"Authorization": "Bearer other"}, true},
 		{"nothing", nil, true},
 	} {
