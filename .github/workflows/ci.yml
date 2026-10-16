@@ -1,7 +1,7 @@
 # Test, vet and build on every push and pull request.
 #
 # GOOS/GOARCH are set explicitly because the GPIO dependency
-# (warthog618/go-gpiocdev via womat/golib/gpio/rpi) only compiles for Linux.
+# (warthog618/go-gpiocdev via womat/gpio/rpi) only compiles for Linux.
 # A bare `go vet ./...` on any other platform fails with `undefined: uapi.*`.
 #
 # Actions are pinned to a commit SHA, with the release it belongs to in a

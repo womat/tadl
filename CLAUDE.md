@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build / develop
 
-**The GPIO dependency (`warthog618/go-gpiocdev` via `womat/golib/gpio/rpi`) only compiles for Linux.** On macOS `go build ./...` and `go vet ./...` fail with `undefined: uapi.*`. Always set the target explicitly when checking code locally:
+**The GPIO dependency (`warthog618/go-gpiocdev` via `womat/gpio/rpi`) only compiles for Linux.** On macOS `go build ./...` and `go vet ./...` fail with `undefined: uapi.*`. Always set the target explicitly when checking code locally:
 
 ```sh
 GOOS=linux GOARCH=arm64 go vet ./...
@@ -38,7 +38,7 @@ Two ways onto a Pi, deliberately kept apart: `make deploy` builds locally and is
 
 ### Tests
 
-Tests need no hardware: `pkg/dlbus/e2e_test.go` runs golib's Manchester encoder over a virtual line (also inverted, with the clock 5 % off) into the decoder without a bit clock, the DL-Bus handler and the data logger; the other packages test pure logic. They still import the Linux-only GPIO backend, so they compile on Linux only. Run them with `make test` (`go test -race ./...`), on macOS in a container:
+Tests need no hardware: `pkg/dlbus/e2e_test.go` runs the Manchester encoder of `womat/manchester` over a virtual line (also inverted, with the clock 5 % off) into the decoder without a bit clock, the DL-Bus handler and the data logger; the other packages test pure logic. They still import the Linux-only GPIO backend, so they compile on Linux only. Run them with `make test` (`go test -race ./...`), on macOS in a container:
 
 ```sh
 docker run --rm -v "$PWD":/src -w /src golang:1.27 make test
@@ -56,7 +56,7 @@ Two things to keep in mind when touching `.goreleaser.yaml`: its `before` hook m
 
 `.github/workflows/ci.yml` runs on every push/PR against `main`: `make test` with the race detector, and a build matrix over armv6/armv7/arm64 with vet, a plain and a `-tags swagger` build, golangci-lint and govulncheck. `release.yml` repeats test, vet and govulncheck on the tagged commit before GoReleaser publishes. `.github/dependabot.yml` updates actions and Go modules, but not the `go install` pins of govulncheck and golangci-lint (ci.yml, release.yml, the Makefile's `lint` target) — raise those by hand.
 
-golangci-lint runs with the default linters; every exclusion in `.golangci.yml` is a decision with a why-comment (errcheck is off in `_test.go`, and the deferred `Close` of golib's logger and GPIO pin is listed in `exclude-functions` instead of switching errcheck off). Fix a new finding rather than widening an exclusion. Like vet, it needs `GOOS=linux`, which `make lint` sets. Check the workflow files for the exact jobs when you change them.
+golangci-lint runs with the default linters; every exclusion in `.golangci.yml` is a decision with a why-comment (errcheck is off in `_test.go`, and the deferred `Close` of the golib logger and the GPIO pin is listed in `exclude-functions` instead of switching errcheck off). Fix a new finding rather than widening an exclusion. Like vet, it needs `GOOS=linux`, which `make lint` sets. Check the workflow files for the exact jobs when you change them.
 
 ### Swagger
 
@@ -87,7 +87,7 @@ Without a controller, run `dlbussim` on a second GPIO pin wired to tadl's input 
 
 Layering is strict: `cmd` → `app` → `app/service/*` → `pkg/*`. Lower layers never import upward.
 
-Data path: GPIO edges (`womat/golib/gpio/rpi`) → `app.decoderEvents` → golib `manchester/decoder` (bit clock recovered from the signal when `bitClock: 0`, IEEE convention) → `pkg/dlbus` (SYNC detection, polarity, bytes → frames) → `pkg/datalogger` (frame → `datalogger.Frame`) → `app/service/collector` (latest frame, MQTT publish, trend) → `/data`, `/health`, MQTT.
+Data path: GPIO edges (`womat/gpio/rpi`) → `app.decoderEvents` → `womat/manchester/decoder` (bit clock recovered from the signal when `bitClock: 0`, IEEE convention) → `pkg/dlbus` (SYNC detection, polarity, bytes → frames) → `pkg/datalogger` (frame → `datalogger.Frame`) → `app/service/collector` (latest frame, MQTT publish, trend) → `/data`, `/health`, MQTT.
 
 - **`cmd/main.go`** — flags, config load/validate, logger init, and the **restart loop**. `run()` subscribes to SIGHUP/SIGTERM/SIGINT **once** and hands that channel to every `App`, so a signal arriving between two lifecycles waits for the next `App` instead of killing the process — never `signal.Stop`/`Reset` it inside `app`. It passes a `checkReload` closure that loads and validates the config file, which the SIGHUP handler calls **before** tearing anything down, so a broken file is refused and the running `App` keeps going. A restart that passes the check but fails in `Run` (TLS, port, GPIO) falls back to `lastGood`, the config of the previous `App`; only a failing first start exits — with **exit code 78** (`exitConfig`) when the config does not load or validate, which `contrib/tadl.service` keeps from restarting (`RestartPreventExitStatus=78`). `tadl token …` is dispatched at the very top of `main`, before the flags: it is golib's `web.TokenCommand` and only reads the config (`app.TokenFile`) and writes the token file — no GPIO, no MQTT, no server, so it can run while the service runs. Every error path of `Run`, `Init` included, goes through `abort` (cancel, `wg.Wait`, `Cleanup`), so `Cleanup` must cope with parts that were never created. `README.md` in `cmd/` is `//go:embed`-ed as `--help` output, so keep it accurate.
 - **`app/app.go`** — wiring and lifecycle. Owns the `context.Context` that every goroutine is cancelled by. The signal goroutine is the **only** caller of `shutdownProcedure`: SIGHUP → `ModeRestart`, SIGTERM/SIGINT → `ModeStop`, and a web server that stops on its own reports on `app.serverErr` → `ModeRestart` (it must not call `shutdownProcedure` itself, because that waits on `app.wg`, which tracks the server goroutine). The GPIO callback never blocks: when `decoderEvents` is full it drops the edge, counts it in `droppedEdges` and reports it as `Missed` with the next edge. A reload builds a brand-new `App`, so in-memory state (trend samples, the 24 h error window) starts over.
@@ -100,7 +100,7 @@ Data path: GPIO edges (`womat/golib/gpio/rpi`) → `app.decoderEvents` → golib
 - **`pkg/dlbus`** — DL-Bus framing on the decoded bit stream: a SYNC is a run of at least 12 identical bits followed by the opposite start bit; its polarity decides whether the bits are inverted. Bytes are start bit, 8 data bits LSB first, stop bit. Knows nothing of controllers.
 - **`pkg/datalogger`** — per-controller frame decoding (`uvr42.go`, `uvr31.go`), the `Key*` constants, `Keys(type)`, and `frame.go` with `FrameUVR42`/`FrameUVR31`, which build frames for `dlbussim` and the tests. Temperatures outside −50 … 300 °C are left out of the record.
 
-**External dependency `github.com/womat/golib`** supplies `gpio`/`gpio/rpi`, `manchester/decoder` and `manchester/encoder`, `mqtt`, `web` (token auth and `TokenCommand`, access log, CORS, IP filter, `Encode`) and `xlog`. tadl is the **template for the sibling services** (relayhat, s0meter, smartmeter, modbusgateway): token file + `token` subcommand, golib access log, `xlog`, exit code 78, TLS 1.3, `contrib/<svc>.service` with a sandbox, everything under `/opt/<svc>` owned by root. Keep it that way, and carry a change of that pattern over to them. It is not vendored — read it in `$(go env GOMODCACHE)/github.com/womat/golib@<version>` when behavior is unclear.
+**External dependencies:** `github.com/womat/golib/v2` supplies `web` (token auth and `TokenCommand`, access log, CORS, IP filter, `Encode`) and `xlog`; `github.com/womat/gpio` supplies `gpio`/`gpio/rpi`; `github.com/womat/manchester` supplies `decoder` and `encoder`; `github.com/womat/mqtt` the MQTT client. tadl is the **template for the sibling services** (relayhat, s0meter, smartmeter, modbusgateway): token file + `token` subcommand, golib access log, `xlog`, exit code 78, TLS 1.3, `contrib/<svc>.service` with a sandbox, everything under `/opt/<svc>` owned by root. Keep it that way, and carry a change of that pattern over to them. They are not vendored — read them in `$(go env GOMODCACHE)/github.com/womat/<module>@<version>` when behavior is unclear.
 
 ### Telegram contract
 

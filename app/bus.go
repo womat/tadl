@@ -17,7 +17,7 @@ import (
 // A UVR42 or UVR31 sends a frame about every 2.3 s.
 const signalTimeout = 10 * time.Second
 
-// decoderInfo matches golib's decoder.Info(), e.g.
+// decoderInfo matches decoder.Info() of github.com/womat/manchester, e.g.
 // "Decoder state: decoding data, Frequency: 50.00 Hz, Buffer overflow count: 0, Resync count: 3".
 var decoderInfo = regexp.MustCompile(`Decoder state: ([^,]+), Frequency: ([0-9.]+) Hz`)
 

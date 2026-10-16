@@ -627,7 +627,7 @@ since both sides are 3.3 V, or through the optocoupler a real bus would use — 
 | `-frames` | `0` | Number of frames to send, `0` = until interrupted |
 
 `GET /data` then shows the values sent. The tests in `pkg/dlbus` run the same chain without
-hardware: golib's encoder, a virtual line (also inverted, with the clock 5 % off), the decoder
+hardware: the encoder of womat/manchester, a virtual line (also inverted, with the clock 5 % off), the decoder
 without a bit clock, the DL-Bus handler and the data logger.
 
 ---
@@ -744,9 +744,11 @@ modules below. Their terms apply to anyone distributing that binary, not to the 
 | Module                                            | License                        |
 |---------------------------------------------------|--------------------------------|
 | `github.com/eclipse/paho.mqtt.golang`             | **EPL-2.0**, dual with EDL-1.0 |
-| `github.com/womat/golib`                          | MIT                            |
+| `github.com/womat/golib/v2`                       | MIT                            |
+| `github.com/womat/gpio`                           | MIT                            |
+| `github.com/womat/manchester`                     | MIT                            |
+| `github.com/womat/mqtt`                           | MIT                            |
 | `github.com/warthog618/go-gpiocdev`               | MIT                            |
-| `github.com/golang-jwt/jwt/v5`                    | MIT                            |
 | `gopkg.in/yaml.v3`                                | MIT and Apache-2.0             |
 | `github.com/gorilla/websocket`                    | BSD-3-Clause                   |
 | `golang.org/x/net`, `sync`, `sys`                 | BSD-3-Clause                   |

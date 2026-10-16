@@ -4,13 +4,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/womat/golib/manchester/decoder"
-	"github.com/womat/golib/manchester/encoder"
+	"github.com/womat/manchester/decoder"
+	"github.com/womat/manchester/encoder"
 	"github.com/womat/tadl/pkg/datalogger"
 	"github.com/womat/tadl/pkg/dlbus"
 )
 
-// line is a virtual DL-Bus between the golib encoder, acting as controller,
+// line is a virtual DL-Bus between the manchester encoder, acting as controller,
 // and the receiving chain. Every level the encoder drives becomes an edge with
 // a synthetic timestamp, so the bus runs at halfBit per half-bit whatever the
 // encoder's own speed. invert models an optocoupler.

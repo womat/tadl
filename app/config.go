@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/womat/golib/web"
+	"github.com/womat/golib/v2/web"
 	"github.com/womat/tadl/pkg/datalogger"
 	"gopkg.in/yaml.v3"
 )

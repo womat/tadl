@@ -31,9 +31,9 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/womat/golib/gpio"
-	"github.com/womat/golib/gpio/rpi"
-	"github.com/womat/golib/manchester/encoder"
+	"github.com/womat/gpio"
+	"github.com/womat/gpio/rpi"
+	"github.com/womat/manchester/encoder"
 	"github.com/womat/tadl/pkg/datalogger"
 )
 

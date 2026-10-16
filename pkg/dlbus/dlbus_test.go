@@ -5,7 +5,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/womat/golib/manchester/decoder"
+	"github.com/womat/manchester/decoder"
 )
 
 // bitsOf returns the bit stream a controller sends for the given frames: a

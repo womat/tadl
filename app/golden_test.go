@@ -12,7 +12,7 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/womat/golib/mqtt"
+	"github.com/womat/mqtt"
 	"github.com/womat/tadl/app/service/collector"
 	"github.com/womat/tadl/pkg/datalogger"
 )

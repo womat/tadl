@@ -34,7 +34,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/womat/golib/manchester/decoder"
+	"github.com/womat/manchester/decoder"
 )
 
 // ErrWatcherAlreadyStarted is returned by Watch if the decoding goroutine is already running.

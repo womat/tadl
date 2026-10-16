@@ -9,7 +9,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/womat/golib/mqtt"
+	"github.com/womat/mqtt"
 )
 
 // RunPeriodicPublish publishes the current data frame every interval until ctx

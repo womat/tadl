@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/womat/golib/mqtt"
+	"github.com/womat/mqtt"
 	"github.com/womat/tadl/pkg/datalogger"
 )
 
