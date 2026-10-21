@@ -16,7 +16,8 @@ import (
 //	@Description	Retrieves memory usage, goroutine count, version, hostname, Go runtime version and OS, the MQTT connection state
 //	@Description	with broker (host:port, never credentials) and topic,
 //	@Description	the latest controller values with their names, bar ranges and 15 min trend, and the state of the DL-Bus input
-//	@Description	(signal, bit rate, line polarity, error counters since start and for the last 24 h). The web UI at / reads it.
+//	@Description	(signal, bit rate used and nominal, edge rate at the input, line polarity, error counters since start and for the
+//	@Description	last 24 h, the watchdog's decoder resets). The web UI at / reads it.
 //	@Tags			info
 //	@Produce		json
 //	@Security		BearerAuth

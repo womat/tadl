@@ -80,6 +80,14 @@ type App struct {
 	decoderEvents chan decoder.Event
 	// droppedEdges counts the GPIO edges the decoder had no room for.
 	droppedEdges atomic.Uint64
+	// edges counts every edge at the input, lost ones included, and lastEdgeNs
+	// is when the last one arrived (unix nanoseconds, 0 before the first);
+	// edgeRateBits is the rate watchBus derived from edges (math.Float64bits).
+	edges        atomic.Uint64
+	lastEdgeNs   atomic.Int64
+	edgeRateBits atomic.Uint64
+	// decoderResets counts the watchdog's resets of the Manchester decoder.
+	decoderResets atomic.Uint64
 	// busErrors sums the DL-Bus errors of the last 24 hours for the web UI.
 	busErrors *errwindow.Window
 
@@ -169,6 +177,9 @@ func (app *App) Run() (*App, error) {
 	debugEdges := slog.Default().Enabled(app.ctx, slog.LevelDebug)
 	err = app.pin.WatchFunc(gpio.RisingEdge|gpio.FallingEdge,
 		func(evt gpio.Event) {
+			app.edges.Add(evt.Missed + 1)
+			app.lastEdgeNs.Store(time.Now().UnixNano())
+
 			edge := decoder.FallingEdge
 			if evt.Edge == gpio.RisingEdge {
 				edge = decoder.RisingEdge
@@ -206,6 +217,9 @@ func (app *App) Run() (*App, error) {
 			}
 		}
 	})
+
+	// Edge rate for /health, and the watchdog of the Manchester decoder.
+	app.wg.Go(app.watchBus)
 
 	// handle the OS signals
 	app.HandleOSSignals()

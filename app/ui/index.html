@@ -337,15 +337,32 @@ function renderController(dl, bus) {
     return `The DL-Bus carries frames, but none matches the configured controller ${dl.type.toUpperCase()}. Check datalogger.type in the config.`;
   }
   const since = dl.lastFrame ? ` since ${dl.lastFrame.slice(11, 19)}` : " since tadl started";
+  if (bus.signal === "notDecoded") {
+    return `No current frame from the controller${since}. The input receives a signal ` +
+      `(${Math.round(bus.edgeRateHz)} edges/s), but tadl cannot decode it — see the DL-Bus card.`;
+  }
   return `No current frame from the controller${since}. Check the DL-Bus wiring and that the controller is powered.`;
 }
 
+// A bit rate more than this far off the controller's nominal one is flagged.
+const RATE_TOLERANCE = 0.1;
+
+function bitRate(bus) {
+  if (bus.bitRateHz === null) return { text: "searching", off: false };
+  const off = bus.nominalBitRateHz > 0 &&
+    Math.abs(bus.bitRateHz - bus.nominalBitRateHz) > bus.nominalBitRateHz * RATE_TOLERANCE;
+  const text = `${bus.bitRateHz.toFixed(1)} Hz` + (bus.fixedBitClock ? " (fixed)" : "");
+  return { text, off };
+}
+
 function renderBus(bus) {
+  const rate = bitRate(bus);
   const hz = bus.bitRateHz ? ` · ${bus.bitRateHz.toFixed(1)} Hz` : "";
   const state = {
     receiving: ["ok", "Receiving" + hz, "valid frames from the controller"],
     noValidFrames: ["warn", "Signal, no valid frames" + hz, "frames arrive but are rejected"],
-    noSignal: ["crit", "No signal", "no frames on the DL-Bus"],
+    notDecoded: ["crit", "Signal not decoded", "edges at the input, but no frames come out"],
+    noSignal: ["crit", "No signal", "no edges at the input"],
   }[bus.signal] || ["crit", "Unknown", bus.signal];
   const sig = $("signal");
   sig.className = "signal " + state[0];
@@ -355,8 +372,15 @@ function renderBus(bus) {
   const detail = `Last 24 h: rejected frames ${e.rejectedFrames} · dropped frames ${e.droppedFrames} · ` +
     `protocol errors ${e.protocolErrors} · dropped edges ${e.droppedEdges}`;
   const when = e.total && bus.lastErrorAgeSeconds !== null ? ` · last ${ago(bus.lastErrorAgeSeconds)} ago` : "";
-  $("bus").innerHTML = `<dt>Line</dt><dd>${bus.invertedLine ? "inverted" : "normal"}</dd>
-    <dt>Errors 24 h</dt><dd class="${e.total ? "warn" : ""}"><abbr title="${detail}">${e.total}</abbr>${when}</dd>`;
+  const nominal = bus.nominalBitRateHz ? `the controller sends at ${bus.nominalBitRateHz} Hz` : "";
+  const rateTitle = rate.off ? `far off the nominal rate: ${nominal}` : nominal;
+  const resets = bus.decoderResets
+    ? `<dt>Decoder resets</dt><dd class="warn"><abbr title="by the watchdog since start: edges arrived, but no frame">${bus.decoderResets}</abbr></dd>`
+    : "";
+  $("bus").innerHTML = `<dt>Bit rate</dt><dd class="${rate.off ? "warn" : ""}"><abbr title="${esc(rateTitle)}">${esc(rate.text)}</abbr></dd>
+    <dt>Edges</dt><dd>${Math.round(bus.edgeRateHz)}/s</dd>
+    <dt>Line</dt><dd>${bus.invertedLine ? "inverted" : "normal"}</dd>
+    <dt>Errors 24 h</dt><dd class="${e.total ? "warn" : ""}"><abbr title="${detail}">${e.total}</abbr>${when}</dd>${resets}`;
 
   blink(bus.framesReceived);
 }

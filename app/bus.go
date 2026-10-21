@@ -3,6 +3,8 @@ package app
 // Status of the DL-Bus input for /health and the web UI.
 
 import (
+	"log/slog"
+	"math"
 	"regexp"
 	"strconv"
 	"time"
@@ -13,9 +15,19 @@ import (
 	"github.com/womat/tadl/pkg/datalogger"
 )
 
-// signalTimeout is how long frames may be missing before the signal counts as lost.
-// A UVR42 or UVR31 sends a frame about every 2.3 s.
-const signalTimeout = 10 * time.Second
+const (
+	// signalTimeout is how long frames may be missing before the signal counts as lost.
+	// A UVR42 or UVR31 sends a frame about every 2.3 s.
+	signalTimeout = 10 * time.Second
+
+	// watchdogTimeout is how long edges may arrive without a frame on the bus
+	// before the watchdog resets the Manchester decoder: about 13 frames of a
+	// UVR42, and also the least time between two resets.
+	watchdogTimeout = 30 * time.Second
+
+	// busSampleInterval is how often the edge rate is sampled and the watchdog looks.
+	busSampleInterval = 10 * time.Second
+)
 
 // decoderInfo matches decoder.Info() of github.com/womat/manchester, e.g.
 // "Decoder state: decoding data, Frequency: 50.00 Hz, Buffer overflow count: 0, Resync count: 3".
@@ -35,17 +47,84 @@ func parseDecoderInfo(info string) *float64 {
 	return &hz
 }
 
-// signalState tells from the age of the last valid record and of the last frame
-// on the bus whether data arrives; a nil age means there was none yet.
-func signalState(recordAge, frameAge *time.Duration) string {
+// signalState tells from the age of the last valid record, of the last frame on
+// the bus and of the last edge at the input how far data gets; a nil age means
+// there was none yet. Edges without frames point at the decoder, not at the
+// wiring, which is why they are a state of their own.
+func signalState(recordAge, frameAge, edgeAge *time.Duration) string {
+	recent := func(age *time.Duration) bool { return age != nil && *age < signalTimeout }
 	switch {
-	case recordAge != nil && *recordAge < signalTimeout:
+	case recent(recordAge):
 		return health.SignalReceiving
-	case frameAge != nil && *frameAge < signalTimeout:
+	case recent(frameAge):
 		return health.SignalNoValidFrames
+	case recent(edgeAge):
+		return health.SignalNotDecoded
 	default:
 		return health.SignalNone
 	}
+}
+
+// edgeRate returns the edges per second between two readings of the edge
+// counter taken d apart.
+func edgeRate(before, after uint64, d time.Duration) float64 {
+	if d <= 0 {
+		return 0
+	}
+	return float64(after-before) / d.Seconds()
+}
+
+// decoderStuck tells the watchdog whether to reset the Manchester decoder:
+// edges still arrive, but there was no frame on the bus for watchdogTimeout,
+// counted from since (the start or the previous reset) at the latest. A silent
+// line is left alone: a reset cannot help there and would only hide the fault.
+func decoderStuck(now, lastEdge, lastFrame, since time.Time) bool {
+	if lastEdge.IsZero() || now.Sub(lastEdge) >= signalTimeout {
+		return false
+	}
+	if lastFrame.Before(since) {
+		lastFrame = since
+	}
+	return now.Sub(lastFrame) > watchdogTimeout
+}
+
+// watchBus samples the edge rate for /health and resets the Manchester decoder
+// when edges arrive but no frame comes out of them, until the App's context
+// ends. The decoder recognises a clock locked at twice the bit rate itself;
+// the watchdog is there for whatever else makes it stall.
+func (app *App) watchBus() {
+	ticker := time.NewTicker(busSampleInterval)
+	defer ticker.Stop()
+
+	since := time.Now()
+	edges, at := app.edges.Load(), since
+	for {
+		select {
+		case <-app.ctx.Done():
+			return
+		case now := <-ticker.C:
+			n := app.edges.Load()
+			rate := edgeRate(edges, n, now.Sub(at))
+			app.edgeRateBits.Store(math.Float64bits(rate))
+			edges, at = n, now
+
+			if decoderStuck(now, app.lastEdge(), app.dlbus.Stats().LastFrame, since) {
+				slog.Warn("Edges at the DL-Bus input, but no frame: resetting the Manchester decoder",
+					"edgeRateHz", math.Round(rate), "decoder", app.decoder.Info())
+				app.decoder.Reset()
+				app.decoderResets.Add(1)
+				since = now
+			}
+		}
+	}
+}
+
+// lastEdge returns when the last edge arrived at the input, zero before the first.
+func (app *App) lastEdge() time.Time {
+	if ns := app.lastEdgeNs.Load(); ns != 0 {
+		return time.Unix(0, ns)
+	}
+	return time.Time{}
 }
 
 // busErrorCounts returns the cumulative error counters of the DL-Bus input.
@@ -66,7 +145,7 @@ func (app *App) busStatus(dl collector.DataloggerStatus, now time.Time) health.B
 	counts := app.busErrorCounts()
 	info := app.decoder.Info()
 
-	var recordAge, frameAge *time.Duration
+	var recordAge, frameAge, edgeAge *time.Duration
 	if dl.LastFrameAgeSeconds != nil {
 		d := time.Duration(*dl.LastFrameAgeSeconds * float64(time.Second))
 		recordAge = &d
@@ -75,17 +154,25 @@ func (app *App) busStatus(dl collector.DataloggerStatus, now time.Time) health.B
 		d := now.Sub(bus.LastFrame)
 		frameAge = &d
 	}
+	if last := app.lastEdge(); !last.IsZero() {
+		d := now.Sub(last)
+		edgeAge = &d
+	}
 
 	st := health.BusStatus{
-		Signal:         signalState(recordAge, frameAge),
-		BitRateHz:      parseDecoderInfo(info),
-		InvertedLine:   bus.InvertedLine,
-		FramesReceived: app.datalogger.Stats().Decoded,
-		RejectedFrames: counts.RejectedFrames,
-		DroppedFrames:  counts.DroppedFrames,
-		ProtocolErrors: counts.ProtocolErrors,
-		DroppedEdges:   counts.DroppedEdges,
-		Decoder:        info,
+		Signal:           signalState(recordAge, frameAge, edgeAge),
+		BitRateHz:        parseDecoderInfo(info),
+		FixedBitClock:    app.config.DlBus.BitClock > 0,
+		NominalBitRateHz: datalogger.BitRate(deviceType(app.config.DataLogger.Type)),
+		EdgeRateHz:       math.Float64frombits(app.edgeRateBits.Load()),
+		DecoderResets:    app.decoderResets.Load(),
+		InvertedLine:     bus.InvertedLine,
+		FramesReceived:   app.datalogger.Stats().Decoded,
+		RejectedFrames:   counts.RejectedFrames,
+		DroppedFrames:    counts.DroppedFrames,
+		ProtocolErrors:   counts.ProtocolErrors,
+		DroppedEdges:     counts.DroppedEdges,
+		Decoder:          info,
 	}
 
 	last24h, lastError := app.busErrors.Last24h()

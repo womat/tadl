@@ -49,17 +49,27 @@ definitions:
   health.BusStatus:
     properties:
       bitRateHz:
-        description: recovered bit clock; null while the decoder searches for it
+        description: bit clock the decoder uses; null while it searches for it
         type: number
       decoder:
         description: decoder state as text, for troubleshooting
         type: string
+      decoderResets:
+        description: DecoderResets counts the watchdog's resets of the Manchester
+          decoder since start.
+        type: integer
       droppedEdges:
         type: integer
       droppedFrames:
         type: integer
+      edgeRateHz:
+        description: edges per second at the GPIO input, over the last 10 s
+        type: number
       errors24h:
         $ref: '#/definitions/health.ErrorSummary'
+      fixedBitClock:
+        description: the bit clock is configured (dlbus.bitClock), not recovered
+        type: boolean
       framesReceived:
         description: Cumulative counters since start.
         type: integer
@@ -69,6 +79,9 @@ definitions:
         description: last error within the last 24 h; null if none
         type: string
       lastErrorAgeSeconds:
+        type: number
+      nominalBitRateHz:
+        description: bit rate of the configured controller
         type: number
       protocolErrors:
         type: integer
@@ -199,7 +212,8 @@ paths:
         Retrieves memory usage, goroutine count, version, hostname, Go runtime version and OS, the MQTT connection state
         with broker (host:port, never credentials) and topic,
         the latest controller values with their names, bar ranges and 15 min trend, and the state of the DL-Bus input
-        (signal, bit rate, line polarity, error counters since start and for the last 24 h). The web UI at / reads it.
+        (signal, bit rate used and nominal, edge rate at the input, line polarity, error counters since start and for the
+        last 24 h, the watchdog's decoder resets). The web UI at / reads it.
       produces:
       - application/json
       responses:

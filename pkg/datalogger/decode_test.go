@@ -134,6 +134,17 @@ func TestKeys(t *testing.T) {
 	}
 }
 
+func TestBitRate(t *testing.T) {
+	for _, tt := range []struct {
+		device int
+		want   float64
+	}{{UVR42, 50}, {UVR31, 50}, {0x99, 0}} {
+		if got := BitRate(tt.device); got != tt.want {
+			t.Errorf("BitRate(%#x) = %v, want %v", tt.device, got, tt.want)
+		}
+	}
+}
+
 func TestStatsCountDecodedAndRejected(t *testing.T) {
 	h := NewUVR42()
 	rx := make(chan []byte)

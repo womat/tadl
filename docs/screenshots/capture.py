@@ -56,7 +56,8 @@ def health():
             "outputs": [{"key": k, "label": l, "on": on} for k, l, on in OUTPUTS],
         },
         "bus": {
-            "signal": "receiving", "bitRateHz": 50.0, "invertedLine": True,
+            "signal": "receiving", "bitRateHz": 50.0, "fixedBitClock": False,
+            "nominalBitRateHz": 50.0, "edgeRateHz": 74.6, "invertedLine": True, "decoderResets": 0,
             "framesReceived": frames, "rejectedFrames": 0, "droppedFrames": 0,
             "protocolErrors": 3, "droppedEdges": 0,
             "errors24h": {"rejectedFrames": 0, "droppedFrames": 0, "protocolErrors": 3,

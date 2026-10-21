@@ -172,6 +172,16 @@ func Keys(device int) (temperatures, outputs []string) {
 	return nil, nil
 }
 
+// BitRate returns the nominal DL-Bus bit rate of a device in Hz, the rate the
+// web UI compares the recovered one with. It returns 0 for an unknown device.
+func BitRate(device int) float64 {
+	switch device {
+	case UVR42, UVR31:
+		return 50
+	}
+	return 0
+}
+
 // options holds optional configuration applied via Option functions.
 type options struct {
 	logger *slog.Logger

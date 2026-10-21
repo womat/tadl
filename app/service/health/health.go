@@ -25,14 +25,21 @@ const (
 const (
 	SignalReceiving     = "receiving"     // valid frames arrive
 	SignalNoValidFrames = "noValidFrames" // frames arrive, but none fits the configured controller
-	SignalNone          = "noSignal"      // no frames on the bus
+	SignalNotDecoded    = "notDecoded"    // edges arrive at the input, but no frame comes out of them
+	SignalNone          = "noSignal"      // no edges at the input
 )
 
 // BusStatus describes the DL-Bus input.
 type BusStatus struct {
-	Signal       string   `json:"signal"`
-	BitRateHz    *float64 `json:"bitRateHz"` // recovered bit clock; null while the decoder searches for it
-	InvertedLine bool     `json:"invertedLine"`
+	Signal           string   `json:"signal"`
+	BitRateHz        *float64 `json:"bitRateHz"`        // bit clock the decoder uses; null while it searches for it
+	FixedBitClock    bool     `json:"fixedBitClock"`    // the bit clock is configured (dlbus.bitClock), not recovered
+	NominalBitRateHz float64  `json:"nominalBitRateHz"` // bit rate of the configured controller
+	EdgeRateHz       float64  `json:"edgeRateHz"`       // edges per second at the GPIO input, over the last 10 s
+	InvertedLine     bool     `json:"invertedLine"`
+
+	// DecoderResets counts the watchdog's resets of the Manchester decoder since start.
+	DecoderResets uint64 `json:"decoderResets"`
 
 	// Cumulative counters since start.
 	FramesReceived uint64 `json:"framesReceived"`

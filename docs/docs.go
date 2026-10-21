@@ -87,7 +87,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Retrieves memory usage, goroutine count, version, hostname, Go runtime version and OS, the MQTT connection state\nwith broker (host:port, never credentials) and topic,\nthe latest controller values with their names, bar ranges and 15 min trend, and the state of the DL-Bus input\n(signal, bit rate, line polarity, error counters since start and for the last 24 h). The web UI at / reads it.",
+                "description": "Retrieves memory usage, goroutine count, version, hostname, Go runtime version and OS, the MQTT connection state\nwith broker (host:port, never credentials) and topic,\nthe latest controller values with their names, bar ranges and 15 min trend, and the state of the DL-Bus input\n(signal, bit rate used and nominal, edge rate at the input, line polarity, error counters since start and for the\nlast 24 h, the watchdog's decoder resets). The web UI at / reads it.",
                 "produces": [
                     "application/json"
                 ],
@@ -213,12 +213,16 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "bitRateHz": {
-                    "description": "recovered bit clock; null while the decoder searches for it",
+                    "description": "bit clock the decoder uses; null while it searches for it",
                     "type": "number"
                 },
                 "decoder": {
                     "description": "decoder state as text, for troubleshooting",
                     "type": "string"
+                },
+                "decoderResets": {
+                    "description": "DecoderResets counts the watchdog's resets of the Manchester decoder since start.",
+                    "type": "integer"
                 },
                 "droppedEdges": {
                     "type": "integer"
@@ -226,8 +230,16 @@ const docTemplate = `{
                 "droppedFrames": {
                     "type": "integer"
                 },
+                "edgeRateHz": {
+                    "description": "edges per second at the GPIO input, over the last 10 s",
+                    "type": "number"
+                },
                 "errors24h": {
                     "$ref": "#/definitions/health.ErrorSummary"
+                },
+                "fixedBitClock": {
+                    "description": "the bit clock is configured (dlbus.bitClock), not recovered",
+                    "type": "boolean"
                 },
                 "framesReceived": {
                     "description": "Cumulative counters since start.",
@@ -241,6 +253,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "lastErrorAgeSeconds": {
+                    "type": "number"
+                },
+                "nominalBitRateHz": {
+                    "description": "bit rate of the configured controller",
                     "type": "number"
                 },
                 "protocolErrors": {

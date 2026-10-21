@@ -205,8 +205,11 @@ removes it, and a rejected token brings the prompt back. The page refreshes ever
 - the temperatures of the controller, each with a bar on its own range and the change over the
   last 15 minutes, and the outputs on or off. Names and ranges come from `datalogger.sensors`;
 - whether data arrives: a receive LED flashes on every valid frame, and the signal line reads
-  *Receiving*, *Signal, no valid frames* (wrong `datalogger.type`) or *No signal*;
-- the line polarity and the number of errors in the last 24 hours, with the time of the last one.
+  *Receiving*, *Signal, no valid frames* (wrong `datalogger.type`), *Signal not decoded* (edges
+  at the input, but no frames) or *No signal* (no edges either);
+- the bit rate the decoder uses, marked when it is more than 10 % off the controller's, the edges
+  per second at the input, the line polarity, the number of errors in the last 24 hours with the
+  time of the last one, and the watchdog's decoder resets, if there were any.
 
 The browser tab reads `tadl · <host>`, so several devices can be told apart. The page itself is
 public and contains no data. It is a single file embedded in the binary, with no external scripts or
@@ -476,7 +479,11 @@ topic as the tooltip of the MQTT pill):
 "bus": {
   "signal": "receiving",
   "bitRateHz": 50,
+  "fixedBitClock": false,
+  "nominalBitRateHz": 50,
+  "edgeRateHz": 74.6,
   "invertedLine": true,
+  "decoderResets": 0,
   "framesReceived": 48213,
   "rejectedFrames": 0,
   "droppedFrames": 0,
@@ -493,8 +500,12 @@ topic as the tooltip of the MQTT pill):
 |-------|---------|
 | `temperatures[].value` | `null` while the sensor is out of range |
 | `temperatures[].trend15m` | Change in Kelvin over the last 15 minutes; `null` until tadl has run that long |
-| `bus.signal` | `receiving` (valid frames in the last 10 s), `noValidFrames` (frames arrive but none fits `datalogger.type`), `noSignal` |
-| `bus.bitRateHz` | Bit clock the decoder follows; `null` while it searches for it |
+| `bus.signal` | `receiving` (valid frames in the last 10 s), `noValidFrames` (frames arrive but none fits `datalogger.type`), `notDecoded` (edges at the input, but no frames), `noSignal` (no edges either) |
+| `bus.bitRateHz` | Bit clock the decoder uses; `null` while it searches for it |
+| `bus.fixedBitClock` | The bit clock is set by `dlbus.bitClock`, not recovered |
+| `bus.nominalBitRateHz` | Bit rate of the configured controller (UVR42/UVR31: 50) |
+| `bus.edgeRateHz` | Edges per second at the GPIO input over the last 10 s; a DL-Bus at 50 Hz gives 50 to 100 |
+| `bus.decoderResets` | Resets of the Manchester decoder by the watchdog since the start, see [Troubleshooting](#troubleshooting) |
 | `bus.invertedLine` | The last SYNC arrived inverted, as behind an optocoupler |
 | `rejectedFrames` | Frames of the wrong size or another device, or without a valid temperature |
 | `droppedFrames` | Frames discarded because the reader was busy |
@@ -656,7 +667,7 @@ Report vulnerabilities privately, see [SECURITY.md](SECURITY.md).
 ## Troubleshooting
 
 **The web page shows *No signal***
-No frames arrive. Check the wiring and the GPIO number in `dlbus.gpio`, and that the transistor side
+Not a single edge arrives at the input. Check the wiring and the GPIO number in `dlbus.gpio`, and that the transistor side
 of the optocoupler has a pull-up (`gpioTermination: pullup` or an external resistor). `--debug` logs
 every GPIO edge; none at all means the input is silent.
 
@@ -664,11 +675,18 @@ every GPIO edge; none at all means the input is silent.
 The bus works, but the frames do not fit `datalogger.type` — another controller type, or a UVR42 set
 up as `uvr31`. `--debug` logs why each frame was rejected.
 
-**The web page shows *No signal*, but the line carries a signal and `/health` reports `bitRateHz` near 100**
-The decoder recovered twice the bit rate of a UVR42 or UVR31 (50 Hz) and decodes nothing. This
-happens after a burst of noise on the line; up to tadl 3.0.3 the decoder never left the wrong
-clock on its own, from 3.0.4 on it recovers the clock anew. On 3.0.3, `systemctl reload tadl`
-starts the decoder anew; `bitClock: 50` avoids clock recovery altogether.
+**The web page shows *Signal not decoded***
+Edges arrive at the input, but no frame comes out of them. If the bit rate is marked, the decoder
+follows the wrong clock: after a burst of noise it can lock on twice the 50 Hz of a UVR42 or UVR31
+and decode nothing. From tadl 3.0.4 on the decoder leaves such a clock on its own, and a watchdog
+resets the decoder whenever edges arrive without a frame for 30 s; each reset is logged as a
+warning with the decoder's state and counted in `bus.decoderResets`. `bitClock: 50` avoids clock
+recovery altogether. If the state persists with the right bit rate, the signal is too distorted:
+check the optocoupler side of the wiring and `dropped edges` in the error count.
+
+Up to tadl 3.0.3 the page showed *No signal* in this case, the decoder could stay on twice the bit
+rate for hours (`bitRateHz` near 100 in `/health`), and only `systemctl reload tadl` brought it
+back.
 
 **A temperature shows *sensor fault* and `/data` leaves it out**
 The controller reports a value outside −50 … 300 °C, usually a sensor that is not connected or
