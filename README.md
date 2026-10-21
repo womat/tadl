@@ -327,8 +327,8 @@ dlbus:
   # UVR1611/UVR61-3/ESR21: 488 Hz) and follows a controller whose clock is off
   # or drifts. A fixed value must match the controller within 25 %.
   # A fixed value is the more robust choice when the controller is known: with
-  # 0, a burst of noise can make the decoder lock on twice the rate, and before
-  # github.com/womat/manchester v1.0.1 it stayed there (see Troubleshooting).
+  # 0, a burst of noise can make the decoder lock on twice the rate, and up to
+  # tadl 3.0.3 it stayed there (see Troubleshooting).
   # The line polarity needs no setting either: an optocoupler inverts the
   # signal, and tadl detects that at the SYNC of every frame.
   bitClock: 0
@@ -666,9 +666,9 @@ up as `uvr31`. `--debug` logs why each frame was rejected.
 
 **The web page shows *No signal*, but the line carries a signal and `/health` reports `bitRateHz` near 100**
 The decoder recovered twice the bit rate of a UVR42 or UVR31 (50 Hz) and decodes nothing. This
-happens after a burst of noise on the line; up to github.com/womat/manchester v1.0.0 the decoder
-never left the wrong clock on its own. `systemctl reload tadl` starts it anew; `bitClock: 50`
-avoids clock recovery altogether.
+happens after a burst of noise on the line; up to tadl 3.0.3 the decoder never left the wrong
+clock on its own, from 3.0.4 on it recovers the clock anew. On 3.0.3, `systemctl reload tadl`
+starts the decoder anew; `bitClock: 50` avoids clock recovery altogether.
 
 **A temperature shows *sensor fault* and `/data` leaves it out**
 The controller reports a value outside −50 … 300 °C, usually a sensor that is not connected or
