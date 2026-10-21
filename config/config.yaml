@@ -90,6 +90,9 @@ dlbus:
   # With 0 tadl reads any controller whatever its bit rate (UVR31/UVR42: 50 Hz,
   # UVR1611/UVR61-3/ESR21: 488 Hz) and follows a controller whose clock is off
   # or drifts. A fixed value must match the controller within 25 %.
+  # A fixed value is the more robust choice when the controller is known: with
+  # 0, a burst of noise can make the decoder lock on twice the rate, and before
+  # github.com/womat/manchester v1.0.1 it stayed there (see Troubleshooting).
   # The line polarity needs no setting either: an optocoupler inverts the
   # signal, and tadl detects that at the SYNC of every frame.
   bitClock: 0
