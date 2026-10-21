@@ -678,15 +678,15 @@ up as `uvr31`. `--debug` logs why each frame was rejected.
 **The web page shows *Signal not decoded***
 Edges arrive at the input, but no frame comes out of them. If the bit rate is marked, the decoder
 follows the wrong clock: after a burst of noise it can lock on twice the 50 Hz of a UVR42 or UVR31
-and decode nothing. From tadl 3.0.4 on the decoder leaves such a clock on its own, and a watchdog
-resets the decoder whenever edges arrive without a frame for 30 s; each reset is logged as a
-warning with the decoder's state and counted in `bus.decoderResets`. `bitClock: 50` avoids clock
-recovery altogether. If the state persists with the right bit rate, the signal is too distorted:
-check the optocoupler side of the wiring and `dropped edges` in the error count.
+and decode nothing. The decoder leaves such a clock on its own, and a watchdog resets the decoder
+whenever edges arrive without a frame for 30 s; each reset is logged as a warning with the
+decoder's state and counted in `bus.decoderResets`. `bitClock: 50` avoids clock recovery
+altogether. If the state persists with the right bit rate, the signal is too distorted: check the
+optocoupler side of the wiring and `dropped edges` in the error count.
 
-Up to tadl 3.0.3 the page showed *No signal* in this case, the decoder could stay on twice the bit
-rate for hours (`bitRateHz` near 100 in `/health`), and only `systemctl reload tadl` brought it
-back.
+Before tadl 3.1.0 the page showed *No signal* in this case and there was no watchdog. Up to 3.0.3
+the decoder could also stay on twice the bit rate for hours (`bitRateHz` near 100 in `/health`),
+and only `systemctl reload tadl` brought it back; 3.0.4 leaves such a clock on its own.
 
 **A temperature shows *sensor fault* and `/data` leaves it out**
 The controller reports a value outside −50 … 300 °C, usually a sensor that is not connected or
