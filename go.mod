@@ -7,7 +7,7 @@ require (
 	github.com/swaggo/swag v1.16.6
 	github.com/womat/golib/v2 v2.0.0
 	github.com/womat/gpio v1.0.2
-	github.com/womat/manchester v1.0.0
+	github.com/womat/manchester v1.0.1
 	github.com/womat/mqtt v1.0.1
 	gopkg.in/yaml.v3 v3.0.1
 )

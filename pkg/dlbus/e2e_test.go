@@ -97,6 +97,33 @@ func receive(t *testing.T, events []decoder.Event) ([]datalogger.Frame, dlbus.St
 	return got, bus.Stats()
 }
 
+// TestUVR42AfterNoiseAtTwiceTheRate is the regression test for a receiver that
+// decoded nothing for hours: a burst at twice the bit rate made the decoder
+// lock on 100 Hz, and the 50 Hz frames that followed kept it there. The chain
+// has to find the real clock again and deliver the frames after the burst.
+func TestUVR42AfterNoiseAtTwiceTheRate(t *testing.T) {
+	temperatures := [4]float64{21.5, 45.3, -7.2, 0}
+	frame := datalogger.FrameUVR42(temperatures, true, false)
+
+	nominal := time.Second / 50 / 2
+	l := &line{halfBit: nominal / 2, invert: true, now: time.Now()}
+	transmit(t, l, []byte{0x00, 0x5a, 0xc3, 0x0f}) // no UVR42 frame, just the burst
+	l.halfBit = nominal
+	transmit(t, l, frame, frame, frame, frame, frame, frame)
+
+	got, _ := receive(t, l.events)
+
+	// The first frames after the burst may be spent on finding the clock again.
+	if len(got) < 3 {
+		t.Fatalf("%d frames after the burst, want at least 3 of the 5 complete ones", len(got))
+	}
+	for _, r := range got {
+		if v, _ := r.Temperature(datalogger.KeyTemperature2); v != temperatures[1] {
+			t.Errorf("%s = %v, want %v", datalogger.KeyTemperature2, v, temperatures[1])
+		}
+	}
+}
+
 // TestUVR42ReachesTheDataLogger is the end-to-end test of the receiving chain:
 // a UVR42 at 50 Hz, also with a clock off by 5 % either way, and also behind
 // an inverting optocoupler, without telling the chain the bit clock or the
