@@ -53,8 +53,8 @@ github.com/warthog618/go-gpiosim v0.1.2 h1:8RsinSKZbsG6REhfVDpBr7gdzQeJ7RoCUxLR9
 github.com/warthog618/go-gpiosim v0.1.2/go.mod h1:YXsnB+I9jdCMY4YAlMSRrlts25ltjmuIsrnoUrBLdqU=
 github.com/womat/golib/v2 v2.0.0 h1:7p4+A46v5g4NiDOPOEhGaDV+KRftI2a6EJ4stoHrfGc=
 github.com/womat/golib/v2 v2.0.0/go.mod h1:GVnuCqXk8/bj5+ZyTMhw5P5bU0otxEF0D2tHSmAyulA=
-github.com/womat/gpio v1.0.2 h1:y/LcN2scNdClXkFC8V4AalbMrbzXNteKMQODNgGUIsI=
-github.com/womat/gpio v1.0.2/go.mod h1:gPWLljplbA0wSGA+Xw7iLxbIk58gJ8VFMj7tjWPai8k=
+github.com/womat/gpio v1.0.3 h1:Zp6SOqTZO5EVYxreAh1iqzCT7vMvjNziiVV86iP+gi0=
+github.com/womat/gpio v1.0.3/go.mod h1:gPWLljplbA0wSGA+Xw7iLxbIk58gJ8VFMj7tjWPai8k=
 github.com/womat/manchester v1.1.0 h1:07UpeLdwlhyt9YDL95psKwyPtEmZ0udH0aPOvDFVjIw=
 github.com/womat/manchester v1.1.0/go.mod h1:YGOYmslj8hioXl+ZVyLQmzzQKm+K8AehrFrVAToVF2c=
 github.com/womat/mqtt v1.0.1 h1:KyjfzwImpkuythOY4ThXkY/1OxV5qRH7kt0PIb7Hmwo=
