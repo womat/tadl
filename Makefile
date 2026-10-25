@@ -83,21 +83,32 @@ clean: ## Remove build related file
 test: ensure_dev_certs ## run all tests with the race detector (Linux only, see comment for macOS)
 	GOOS=linux go test -race ./...
 
-# Static checks for the deploy target $(PI_ARCH): vet, golangci-lint (.golangci.yml)
-# and govulncheck. The tools are pinned like in ci.yml (dependabot does not see these
-# lines - raise them by hand) and installed into bin/tools for the host: `go run`
-# under GOOS=linux would build a Linux binary that macOS cannot execute. Only the
-# analysis gets the target environment, because the GPIO backend compiles for Linux only.
+# The analysers are pinned here only - ci.yml and release.yml call make lint - and
+# raised by hand: dependabot does not see go install lines. They are installed into
+# ./bin/tools for this machine (GOOS, GOARCH and GOARM cleared, so an exported target
+# cannot leak into the tool build): `go run` under GOOS=linux would build a Linux
+# binary that macOS cannot execute. Only the analysis gets the target environment
+# of $(PI_ARCH), because the GPIO backend compiles for Linux only. Both build variants
+# are linted, with and without the Swagger UI.
+#
+# go fix -diff and go mod tidy -diff report a pending change and fail instead of
+# writing it; `GOOS=linux go fix ./...` and `go mod tidy` apply it. go fix goes red on
+# its own when a new Go release adds a fixer - that is the point.
 GOLANGCI_LINT_VERSION := v2.15.0
 GOVULNCHECK_VERSION   := v1.9.0
-TOOLS_DIR             := $(CURDIR)/bin/tools
+TOOLS_BIN             := $(CURDIR)/bin/tools
 
-lint: ensure_dev_certs ## go vet, golangci-lint and govulncheck for $(PI_ARCH) (runs on macOS too)
-	GOBIN=$(TOOLS_DIR) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
-	GOBIN=$(TOOLS_DIR) go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+lint: ensure_dev_certs ## gofmt, go fix, go mod tidy, go vet, golangci-lint and govulncheck, for $(PI_ARCH) (runs on macOS too)
+	@test -z "$$(gofmt -l ./app ./cmd ./pkg)" || { echo "not gofmt'ed:"; gofmt -l ./app ./cmd ./pkg; exit 1; }
+	@d="$$($(GOENV_$(PI_ARCH)) go fix -diff ./...)"; test -z "$$d" || { echo "$$d"; echo "go fix has pending changes - run: GOOS=linux go fix ./..."; exit 1; }
+	go mod tidy -diff
+	GOOS= GOARCH= GOARM= GOBIN=$(TOOLS_BIN) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	GOOS= GOARCH= GOARM= GOBIN=$(TOOLS_BIN) go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 	$(GOENV_$(PI_ARCH)) go vet ./...
-	$(GOENV_$(PI_ARCH)) $(TOOLS_DIR)/golangci-lint run ./...
-	$(GOENV_$(PI_ARCH)) $(TOOLS_DIR)/govulncheck ./...
+	$(GOENV_$(PI_ARCH)) go vet -tags swagger ./...
+	$(GOENV_$(PI_ARCH)) $(TOOLS_BIN)/golangci-lint run ./...
+	$(GOENV_$(PI_ARCH)) $(TOOLS_BIN)/golangci-lint run --build-tags swagger ./...
+	$(GOENV_$(PI_ARCH)) $(TOOLS_BIN)/govulncheck ./...
 
 ensure_dev_certs:
 	@mkdir -p $(DEV_CERT_DIR)
