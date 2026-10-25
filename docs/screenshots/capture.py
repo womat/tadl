@@ -90,7 +90,7 @@ class Handler(BaseHTTPRequestHandler):
 def shoot(browser, path, width, height, scheme, scale=1, full_page=True):
     ctx = browser.new_context(viewport={"width": width, "height": height},
                               color_scheme=scheme, device_scale_factor=scale)
-    ctx.add_init_script("localStorage.setItem('tadl.apiKey', 'demo')")
+    ctx.add_init_script("localStorage.setItem('tadl.token', 'demo')")
     page = ctx.new_page()
     page.goto(f"http://localhost:{PORT}/")
     # The second poll brings the first frame difference; catch a moment with a lit receive LED.
