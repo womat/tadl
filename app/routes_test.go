@@ -28,9 +28,25 @@ func TestWebPageIsPublic(t *testing.T) {
 
 	rec = httptest.NewRecorder()
 	a.web.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/unknown", nil))
-	// {$} keeps the page to / itself. The router answers 405 here, not 404,
-	// because the preflight route OPTIONS / matches every path.
-	if rec.Code == http.StatusOK || strings.Contains(rec.Body.String(), "<html") {
-		t.Errorf("GET /unknown = %d and serves the page", rec.Code)
+	// {$} keeps the page to / itself. No "OPTIONS /" route (WithCORS answers
+	// preflights), so an unknown path is a 404, not 405.
+	if rec.Code != http.StatusNotFound || strings.Contains(rec.Body.String(), "<html") {
+		t.Errorf("GET /unknown = %d, want 404 without the page", rec.Code)
+	}
+}
+
+// A preflight needs no token: WithCORS answers it before auth and the mux.
+func TestPreflightNeedsNoToken(t *testing.T) {
+	a := New(validConfig(), "", nil, nil)
+	a.SetupRoutes()
+
+	req := httptest.NewRequest(http.MethodOptions, "/health", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	req.Header.Set("Origin", "https://example.com")
+	req.Header.Set("Access-Control-Request-Method", http.MethodGet)
+	rec := httptest.NewRecorder()
+	a.web.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("preflight OPTIONS /health = %d, want 204 without a token", rec.Code)
 	}
 }

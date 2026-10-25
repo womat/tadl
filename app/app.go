@@ -29,6 +29,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/womat/golib/v2/web"
 	"github.com/womat/gpio"
 	"github.com/womat/gpio/rpi"
 	"github.com/womat/manchester/decoder"
@@ -345,6 +346,12 @@ func (app *App) Init() error {
 		StaleAfter:      max(3*mqttSettings.PublishInterval, minStaleAfter),
 	},
 		typ)
+
+	// Checked on every start and reload, so a fixed layout stops the warning without a restart.
+	// A warning, not an error: a development checkout always looks like that.
+	if err := web.CheckTokenFile(app.config.Webserver.TokenFile); err != nil {
+		slog.Warn("Token file is not protected", "error", err)
+	}
 
 	// initRoutes should always be called at the end
 	slog.Debug("Initializing API routes")

@@ -555,7 +555,8 @@ nodered  8b04…d7a2
 
 The token itself exists only with the caller. Whoever reads the file cannot call tadl with it, so
 it needs no more protection than the config — but whoever can **write** it can add a token of their
-own: keep it `root:tadl 0640`, like `config.yaml`.
+own: keep it `root:tadl 0640`, like `config.yaml`. tadl logs the warning "Token file is not
+protected" at every start and reload when it could change the file or a directory above it.
 
 | Command | Does |
 |---|---|
