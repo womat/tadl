@@ -338,8 +338,10 @@ function renderController(dl, bus) {
   }
   const since = dl.lastFrame ? ` since ${dl.lastFrame.slice(11, 19)}` : " since tadl started";
   if (bus.signal === "notDecoded") {
-    return `No current frame from the controller${since}. The input receives a signal ` +
-      `(${Math.round(bus.edgeRateHz)} edges/s), but tadl cannot decode it — see the DL-Bus card.`;
+    // The edge rate is sampled every 10 s, so it is still 0 right after a start.
+    const edges = Math.round(bus.edgeRateHz);
+    return `No current frame from the controller${since}. The input receives a signal` +
+      (edges > 0 ? ` (${edges} edges/s)` : "") + `, but tadl cannot decode it — see the DL-Bus card.`;
   }
   return `No current frame from the controller${since}. Check the DL-Bus wiring and that the controller is powered.`;
 }
@@ -357,7 +359,7 @@ function bitRate(bus) {
 
 function renderBus(bus) {
   const rate = bitRate(bus);
-  const hz = bus.bitRateHz ? ` · ${bus.bitRateHz.toFixed(1)} Hz` : "";
+  const hz = bus.bitRateHz === null ? "" : ` · ${rate.text}`;
   const state = {
     receiving: ["ok", "Receiving" + hz, "valid frames from the controller"],
     noValidFrames: ["warn", "Signal, no valid frames" + hz, "frames arrive but are rejected"],
