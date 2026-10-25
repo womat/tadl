@@ -88,8 +88,8 @@ test: ensure_dev_certs ## run all tests with the race detector (Linux only, see 
 # lines - raise them by hand) and installed into bin/tools for the host: `go run`
 # under GOOS=linux would build a Linux binary that macOS cannot execute. Only the
 # analysis gets the target environment, because the GPIO backend compiles for Linux only.
-GOLANGCI_LINT_VERSION := v2.14.0
-GOVULNCHECK_VERSION   := v1.8.0
+GOLANGCI_LINT_VERSION := v2.15.0
+GOVULNCHECK_VERSION   := v1.9.0
 TOOLS_DIR             := $(CURDIR)/bin/tools
 
 lint: ensure_dev_certs ## go vet, golangci-lint and govulncheck for $(PI_ARCH) (runs on macOS too)
