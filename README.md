@@ -679,8 +679,9 @@ up as `uvr31`. `--debug` logs why each frame was rejected.
 Edges arrive at the input, but no frame comes out of them. If the bit rate is marked, the decoder
 follows the wrong clock: after a burst of noise it can lock on twice the 50 Hz of a UVR42 or UVR31
 and decode nothing. The decoder leaves such a clock on its own, and a watchdog resets the decoder
-whenever edges arrive without a frame for 30 s; each reset is logged as a warning with the
-decoder's state and counted in `bus.decoderResets`. `bitClock: 50` avoids clock recovery
+whenever edges arrive without a frame for 30 s. The first reset is logged as a warning with the
+decoder's state, further ones at debug level until a frame comes again, so an input that never
+decodes does not fill the log; all of them are counted in `bus.decoderResets`. `bitClock: 50` avoids clock recovery
 altogether. If the state persists with the right bit rate, the signal is too distorted: check the
 optocoupler side of the wiring and `dropped edges` in the error count.
 

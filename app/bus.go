@@ -98,6 +98,10 @@ func (app *App) watchBus() {
 
 	since := time.Now()
 	edges, at := app.edges.Load(), since
+	// stuck is set from the first reset until a frame comes again: an input that
+	// never decodes (open, mains hum, wrong bitClock) warns once, the further
+	// resets go to debug and show in decoderResets.
+	stuck := false
 	for {
 		select {
 		case <-app.ctx.Done():
@@ -108,9 +112,18 @@ func (app *App) watchBus() {
 			app.edgeRateBits.Store(math.Float64bits(rate))
 			edges, at = n, now
 
-			if decoderStuck(now, app.lastEdge(), app.dlbus.Stats().LastFrame, since) {
-				slog.Warn("Edges at the DL-Bus input, but no frame: resetting the Manchester decoder",
+			lastFrame := app.dlbus.Stats().LastFrame
+			if !lastFrame.Before(since) {
+				stuck = false
+			}
+			if decoderStuck(now, app.lastEdge(), lastFrame, since) {
+				level := slog.LevelWarn
+				if stuck {
+					level = slog.LevelDebug
+				}
+				slog.Log(app.ctx, level, "Edges at the DL-Bus input, but no frame: resetting the Manchester decoder",
 					"edgeRateHz", math.Round(rate), "decoder", app.decoder.Info())
+				stuck = true
 				app.decoder.Reset()
 				app.decoderResets.Add(1)
 				since = now
