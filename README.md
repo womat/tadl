@@ -705,8 +705,10 @@ The token is wrong or not in the token file, or the token file changed and tadl 
 A configuration error; the process exits with code 78, which the unit does not restart, and
 prints the reason on stdout:
 `Failed to load config file` (YAML could not be parsed — durations such as `publishInterval` must be
-Go duration strings like `60s`, not plain numbers) or `config validation failed`. Check with
-`journalctl -u tadl -n 20`.
+Go duration strings like `60s`, not plain numbers, and the token file must not hold one hash under
+two names) or `config validation failed`, which names the key — for example an `allowedIPs` or
+`blockedIPs` entry that is no address or network, or an `mqtt.connection` that cannot be parsed.
+Check with `journalctl -u tadl -n 20`.
 
 ---
 
