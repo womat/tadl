@@ -40,6 +40,49 @@ func TestValidateMQTTBlockNeedsConnection(t *testing.T) {
 	}
 }
 
+// mqtt v1.1.0 refuses a broker URL Paho cannot parse; Validate must refuse it first, without
+// printing the URL, which may carry a password.
+func TestValidateMQTTRejectsUnparsableConnection(t *testing.T) {
+	for _, conn := range []string{"tcp://user:secret@host:18 83", "%zz"} {
+		c := validConfig()
+		c.MQTT.Connection = conn
+		err := c.Validate()
+		if err == nil || !strings.Contains(err.Error(), "mqtt connection cannot be parsed") {
+			t.Errorf("Validate(%q): err=%v, want a parse error", conn, err)
+		} else if strings.Contains(err.Error(), "secret") {
+			t.Errorf("Validate(%q): error %q shows the password", conn, err)
+		}
+	}
+	for _, conn := range []string{"tcp://host:1883", "host:1883", "ssl://user:pw@host:8883"} {
+		c := validConfig()
+		c.MQTT.Connection = conn
+		if err := c.Validate(); err != nil {
+			t.Errorf("Validate(%q): %v", conn, err)
+		}
+	}
+}
+
+func TestValidateRejectsInvalidIPList(t *testing.T) {
+	c := validConfig()
+	c.Webserver.BlockedIPs = []string{"10.0.0.1", "192.168.0.300"}
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "webserver.blockedIPs") {
+		t.Errorf("Validate with a bad blockedIPs entry: err=%v", err)
+	}
+
+	c = validConfig()
+	c.Webserver.AllowedIPs = []string{"192.168.0.300"}
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "webserver.allowedIPs") {
+		t.Errorf("Validate with a bad allowedIPs entry: err=%v", err)
+	}
+
+	c = validConfig()
+	c.Webserver.AllowedIPs = []string{"192.168.1.0/24", "127.0.0.1"}
+	c.Webserver.BlockedIPs = []string{"192.168.1.13"}
+	if err := c.Validate(); err != nil {
+		t.Errorf("Validate with valid IP lists: %v", err)
+	}
+}
+
 func TestValidateMQTTDefaults(t *testing.T) {
 	c := validConfig()
 	if err := c.Validate(); err != nil {

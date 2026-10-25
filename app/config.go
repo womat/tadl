@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -139,6 +140,16 @@ func (m *MQTTConfig) validate() error {
 
 	if m.Connection == "" {
 		return errors.New("mqtt connection is required; delete the mqtt block to run without MQTT")
+	}
+
+	// Parse it the way Paho does, which drops a broker it cannot parse without a word. The
+	// error names only the cause: the URL may carry a password.
+	broker := m.Connection
+	if !strings.Contains(broker, "://") {
+		broker = "tcp://" + broker
+	}
+	if _, err := url.Parse(broker); err != nil {
+		return fmt.Errorf("mqtt connection cannot be parsed: %v", errors.Unwrap(err))
 	}
 
 	if m.PublishInterval == 0 {
@@ -284,6 +295,15 @@ func (c *Config) Validate() error {
 
 	if c.Webserver.ListenPort < 1 || c.Webserver.ListenPort > 65535 {
 		return fmt.Errorf("invalid port: %d", c.Webserver.ListenPort)
+	}
+
+	// The IP filter leaves out an entry it cannot parse, so a typo would open a blocked
+	// address or lock everyone out.
+	if err := web.ValidateIPList(c.Webserver.BlockedIPs); err != nil {
+		return fmt.Errorf("webserver.blockedIPs: %w", err)
+	}
+	if err := web.ValidateIPList(c.Webserver.AllowedIPs); err != nil {
+		return fmt.Errorf("webserver.allowedIPs: %w", err)
 	}
 
 	if err := c.MQTT.validate(); err != nil {

@@ -269,8 +269,9 @@ func (app *App) Init() error {
 		clientID := MODULE + "-" + hostname
 
 		slog.Info("Connecting to MQTT broker", "broker", logBroker, "clientID", clientID)
-		// New never fails: a broker that cannot be reached is retried in the background.
-		app.mqtt, _ = mqtt.New(broker, clientID,
+		// A broker that cannot be reached is retried in the background; New fails only on a
+		// URL it cannot parse, which Validate has already refused.
+		app.mqtt, err = mqtt.New(broker, clientID,
 			mqtt.WithLogger(slog.Default()),
 			mqtt.WithOnConnected(func() {
 				slog.Info("MQTT connected", "broker", logBroker)
@@ -278,6 +279,10 @@ func (app *App) Init() error {
 			mqtt.WithOnConnectionLost(func(err error) {
 				slog.Warn("MQTT connection lost", "broker", logBroker, "error", err)
 			}))
+		if err != nil {
+			slog.Error("Cannot create the MQTT client", "broker", logBroker, "error", err)
+			return err
+		}
 	}
 
 	options := []rpi.Option{
