@@ -122,7 +122,7 @@ func run() int {
 // buildFrame returns the data bytes of one frame of the given controller.
 func buildFrame(typ, temps string, out1, out2 bool) ([]byte, error) {
 	var values []float64
-	for _, s := range strings.Split(temps, ",") {
+	for s := range strings.SplitSeq(temps, ",") {
 		v, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
 		if err != nil {
 			return nil, fmt.Errorf("invalid temperature %q: %w", s, err)

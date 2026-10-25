@@ -1,6 +1,7 @@
 package collector
 
 import (
+	"slices"
 	"time"
 
 	"github.com/womat/tadl/pkg/datalogger"
@@ -81,8 +82,7 @@ func (h *Handler) track(frame datalogger.Frame) {
 func (h *Handler) trend(key string, value float64, at time.Time) *float64 {
 	// The newest sample at least trendWindow old, but not much older: after a
 	// gap in the data there is no trend for the last 15 minutes.
-	for i := len(h.samples) - 1; i >= 0; i-- {
-		s := h.samples[i]
+	for _, s := range slices.Backward(h.samples) {
 		age := at.Sub(s.at)
 		if age < trendWindow {
 			continue

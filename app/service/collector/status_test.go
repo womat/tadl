@@ -56,7 +56,7 @@ func frameAt(at time.Time, v *float64) datalogger.Frame {
 	f := uvr42Frame(at, 0, false)
 	f.Temperature1 = nil
 	if v != nil {
-		f.Temperature1 = ptr(*v)
+		f.Temperature1 = new(*v)
 	}
 	return f
 }

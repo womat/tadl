@@ -115,8 +115,6 @@ func TestValidateErrorsNameTheConfigKeys(t *testing.T) {
 	}
 }
 
-func ptr(v float64) *float64 { return &v }
-
 func TestValidateSensors(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -125,17 +123,17 @@ func TestValidateSensors(t *testing.T) {
 		wantErr string
 	}{
 		{"valid", "uvr42", map[string]SensorConfig{
-			"temperature1": {Label: "Collector", Min: ptr(-20), Max: ptr(150)},
-			"temperature4": {Label: "Boiler room", Min: ptr(-5), Max: ptr(25)},
+			"temperature1": {Label: "Collector", Min: new(float64(-20)), Max: new(float64(150))},
+			"temperature4": {Label: "Boiler room", Min: new(float64(-5)), Max: new(float64(25))},
 			"out1":         {Label: "Solar pump"},
 		}, ""},
 		{"label only uses the default range", "uvr31", map[string]SensorConfig{"temperature2": {Label: "Tank"}}, ""},
 		{"typo", "uvr42", map[string]SensorConfig{"temprature1": {Label: "x"}}, "unknown key"},
 		{"key of the other device", "uvr31", map[string]SensorConfig{"temperature4": {Label: "x"}}, "unknown key"},
-		{"min not below max", "uvr42", map[string]SensorConfig{"temperature1": {Min: ptr(50), Max: ptr(50)}}, "less than max"},
-		{"min above the default max", "uvr42", map[string]SensorConfig{"temperature1": {Min: ptr(200)}}, "less than max"},
-		{"range on an output", "uvr42", map[string]SensorConfig{"out2": {Min: ptr(0)}}, "no min or max"},
-		{"range outside the sensor range", "uvr42", map[string]SensorConfig{"temperature1": {Max: ptr(400)}}, "within"},
+		{"min not below max", "uvr42", map[string]SensorConfig{"temperature1": {Min: new(float64(50)), Max: new(float64(50))}}, "less than max"},
+		{"min above the default max", "uvr42", map[string]SensorConfig{"temperature1": {Min: new(float64(200))}}, "less than max"},
+		{"range on an output", "uvr42", map[string]SensorConfig{"out2": {Min: new(float64(0))}}, "no min or max"},
+		{"range outside the sensor range", "uvr42", map[string]SensorConfig{"temperature1": {Max: new(float64(400))}}, "within"},
 	}
 	for _, tt := range tests {
 		c := validConfig()

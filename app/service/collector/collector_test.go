@@ -28,17 +28,15 @@ func (f *fakePublisher) Publish(msg mqtt.Message) error {
 
 var t0 = time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
 
-func ptr[T any](v T) *T { return &v }
-
 func uvr42Frame(at time.Time, t1 float64, out1 bool) datalogger.Frame {
 	return datalogger.Frame{
 		Timestamp:    at,
-		Temperature1: ptr(t1),
-		Temperature2: ptr(45.3),
-		Temperature3: ptr(-7.2),
-		Temperature4: ptr(0.0),
+		Temperature1: new(t1),
+		Temperature2: new(45.3),
+		Temperature3: new(-7.2),
+		Temperature4: new(0.0),
 		Out1:         out1,
-		Out2:         ptr(false),
+		Out2:         new(false),
 	}
 }
 
