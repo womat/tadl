@@ -36,6 +36,7 @@ webserver:
   certFile: /opt/tadl/etc/cert.pem
 
   # Blocked IP addresses or networks (empty = none blocked)
+  # An entry that is no address or network is a config error, also in allowedIPs.
   # Examples: 192.168.0.1, 192.168.0.0/16, 10.0.0.0/8
   blockedIPs: [ ]
   #  - 192.168.0.1

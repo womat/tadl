@@ -46,6 +46,10 @@ Einstellung. Keine Cloud, keine Datenbank: ein einzelnes Programm und eine YAML-
 5. **Starten:** mit der Unit aus dem Archiv (`contrib/tadl.service`, läuft abgeschottet), dann
    `https://<dein-pi>:8443/` im Browser öffnen und den Token eingeben.
 
+**Auf 3.2.0:** Die Konfiguration wird strenger geprüft. Ein ungültiger Eintrag in `allowedIPs` oder
+`blockedIPs`, eine nicht lesbare `mqtt.connection` oder ein Hash unter zwei Namen in der
+Token-Datei verhindert jetzt den Start (Exit 78). Siehe [Upgrading to 3.2.0](README.md#upgrading-to-320).
+
 **Von 2.x auf 3.0.0:** `apiKey` gibt es nicht mehr, stattdessen `tokenFile` und `tadl token add`;
 HTTPS nur noch mit TLS 1.3. Die Schritte stehen unter
 [Upgrading to 3.0.0](README.md#upgrading-to-300).

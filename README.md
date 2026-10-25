@@ -275,6 +275,7 @@ webserver:
   certFile: /opt/tadl/etc/cert.pem
 
   # Blocked IP addresses or networks (empty = none blocked)
+  # An entry that is no address or network is a config error, also in allowedIPs.
   # Examples: 192.168.0.1, 192.168.0.0/16, 10.0.0.0/8
   blockedIPs: [ ]
   #  - 192.168.0.1
@@ -373,8 +374,8 @@ mqtt:
 | `webserver.tokenFile` | string | — | **Required.** File with the accepted bearer tokens, see [Tokens](#tokens); relative to the config file |
 | `webserver.keyFile` | string | — | TLS private key file |
 | `webserver.certFile` | string | — | TLS certificate file |
-| `webserver.blockedIPs` | list | empty | Addresses or networks (CIDR) that are refused |
-| `webserver.allowedIPs` | list | empty | Addresses or networks (CIDR) that are allowed; empty allows all |
+| `webserver.blockedIPs` | list | empty | Addresses or networks (CIDR) that are refused; an entry that is neither is a config error |
+| `webserver.allowedIPs` | list | empty | Addresses or networks (CIDR) that are allowed; empty allows all; an entry that is neither is a config error |
 | `datalogger.type` | string | `uvr42` | `uvr42` or `uvr31` |
 | `datalogger.name` | string | the type | Sent as `device` in every telegram, so a consumer can tell several controllers apart |
 | `datalogger.sensors.<key>.label` | string | `T1` … / `A1` … | Name of a temperature or output on the web page |
@@ -384,7 +385,7 @@ mqtt:
 | `dlbus.gpioTermination` | string | `pullup` | `pullup`, `pulldown` or `none`; `none` only with an external pull-up |
 | `dlbus.bitClock` | int | `0` | Bit clock in Hz; `0` recovers it from the signal |
 | `mqtt` | block | — | MQTT is on when the block is present; delete or comment it out to run without MQTT |
-| `mqtt.connection` | string | — | **Required in the block.** Broker, e.g. `tcp://host:1883` or `tcp://user:password@host:1883` |
+| `mqtt.connection` | string | — | **Required in the block.** Broker, e.g. `tcp://host:1883` or `tcp://user:password@host:1883`; a URL that cannot be parsed is a config error |
 | `mqtt.retained` | bool | `false` | Broker keeps the last message |
 | `mqtt.topicPrefix` | string | — | **Required in the block.** Topic the values are published to |
 | `mqtt.publishInterval` | duration | `10s` | Heartbeat, at least `1s` |
@@ -426,8 +427,10 @@ A UVR31 sends `temperature1` … `temperature3` and `out1`.
 - Nothing is published while there is no current frame: when the last one is older than three
   times `publishInterval`, but at least 30 s, the values count as stale. `/data` then answers 503.
 
-While the broker is unreachable, tadl keeps reading and reconnects in the background. The outage
-and its end are logged once each, not for every frame.
+While the broker is unreachable, tadl keeps reading and reconnects in the background, at the
+latest every minute. The outage and its end are logged once each, not for every frame. The log
+does not say why a connect failed, a refused password included: check `mqtt.connection` and the
+broker's log when `/health` stays `disconnected`.
 
 ---
 
@@ -566,8 +569,8 @@ protected" at every start and reload when it could change the file or a director
 | `sudo tadl token list` | Prints the names, never a hash |
 | `sudo systemctl reload tadl` | Applies a change |
 
-`-config` works as for the service. A new token file gets `0640` and the owner and group of
-`config.yaml`. `add` refuses a name that is taken and prints no token when it cannot write the
+`-config` works as for the service. A new token file gets `0640` and the group of `config.yaml`;
+its owner is whoever runs the command, root with `sudo`. `add` refuses a name that is taken and prints no token when it cannot write the
 file, so a token that is shown but stored nowhere cannot happen. A name is 1–64 letters, digits,
 `.`, `_` or `-`.
 
@@ -737,6 +740,22 @@ like `3.0.2-3-g0c13781-dirty` instead, which is how the two are told apart on a 
 Building from source needs Go and `make`: clone the repository and run `make help` for the targets;
 `make test` runs the tests (Linux only), `make lint` vet, golangci-lint and govulncheck, as CI does;
 [`CLAUDE.md`](CLAUDE.md) describes the architecture, the tests and the release process.
+
+### Upgrading to 3.2.0
+
+tadl checks the config and the token file more strictly. A file that 3.1 accepted can now stop
+the start with exit code 78, which systemd does not restart, so check before you replace the
+binary:
+
+- `webserver.allowedIPs` and `blockedIPs`: every entry must be an address or a network. Before,
+  a bad entry was only logged and skipped — a typo in `blockedIPs` blocked nothing.
+- `mqtt.connection` must be a URL tadl can parse. Before, such a URL let tadl run without MQTT.
+- The token file must not hold the same hash under two names. `tadl token remove` refuses such a
+  file too, so delete one of the two lines with `sudoedit /opt/tadl/etc/token-hashes`.
+
+After the restart, `journalctl -u tadl` names the key that was refused. A warning "Token file is not
+protected" means the service user could change the token file or a directory above it: see
+[Tokens](#tokens).
 
 ### Upgrading to 3.0.0
 
