@@ -93,10 +93,12 @@ func decoderStuck(now, lastEdge, lastFrame, since time.Time) bool {
 // ends. The decoder recognises a clock locked at twice the bit rate itself;
 // the watchdog is there for whatever else makes it stall.
 func (app *App) watchBus() {
+	// since is taken before the ticker starts, so the tick at watchdogTimeout
+	// sees a little more than watchdogTimeout and resets then, not one tick later.
+	since := time.Now()
 	ticker := time.NewTicker(busSampleInterval)
 	defer ticker.Stop()
 
-	since := time.Now()
 	edges, at := app.edges.Load(), since
 	// stuck is set from the first reset until a frame comes again: an input that
 	// never decodes (open, mains hum, wrong bitClock) warns once, the further
